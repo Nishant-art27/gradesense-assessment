@@ -8,6 +8,8 @@ Built for the GradeSense AI/ML Product Engineering assignment.
 
 ![The marking view](docs/screenshot-graded.png)
 
+<p align="center"><em>The paper, its annotations, and the reason behind every mark — side by side.</em></p>
+
 ---
 
 ## Run it

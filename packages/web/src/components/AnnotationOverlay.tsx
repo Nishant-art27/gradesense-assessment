@@ -204,7 +204,10 @@ export function AnnotationOverlay({
         const extras = preview?.id === annotation.id ? [] : annotation.extraRects;
 
         return (
-          <g key={annotation.id} className={`annotation kind-${annotation.kind}${selected ? ' selected' : ''}`}>
+          <g
+            key={annotation.id}
+            className={`annotation kind-${annotation.kind} anchor-${annotation.anchorStatus}${selected ? ' selected' : ''}`}
+          >
             {/* Continuation boxes for a quote that wrapped across lines. */}
             {extras
               .filter((rect) => rect.page === pageIndex)

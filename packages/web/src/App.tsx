@@ -1,14 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Annotation, FindingKind, GradingResult, GradingSummary, Rect } from '@gradesense/shared';
 import { api, ApiRequestError, type GradedPaper, type HealthInfo } from './api.js';
 import { PaperViewer } from './components/PaperViewer.js';
 import { RubricPanel } from './components/RubricPanel.js';
 import { AnnotationEditor } from './components/AnnotationEditor.js';
+import { LandingHero } from './components/LandingHero.js';
 
 type Status =
   | { kind: 'idle' }
   | { kind: 'busy'; message: string }
   | { kind: 'error'; message: string; details: string[]; retryable: boolean };
+
+interface Toast {
+  id: number;
+  text: string;
+  tone: 'ok' | 'err';
+}
 
 export function App() {
   const [health, setHealth] = useState<HealthInfo | null>(null);
@@ -23,11 +30,21 @@ export function App() {
   const [drawMode, setDrawMode] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [savingAnnotation, setSavingAnnotation] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const toastSeq = useRef(0);
 
   const selected = useMemo(
     () => annotations.find((annotation) => annotation.id === selectedId) ?? null,
     [annotations, selectedId],
   );
+
+  /** Transient confirmation, so an edit that persisted silently still shows feedback. */
+  const toast = useCallback((text: string, tone: 'ok' | 'err' = 'ok') => {
+    const id = (toastSeq.current += 1);
+    setToasts((current) => [...current, { id, text, tone }]);
+    setTimeout(() => setToasts((current) => current.filter((entry) => entry.id !== id)), 2600);
+  }, []);
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -55,13 +72,16 @@ export function App() {
     })();
   }, [refreshHistory]);
 
-  const fail = (error: unknown, fallback: string) => {
-    if (error instanceof ApiRequestError) {
-      setStatus({ kind: 'error', message: error.message, details: error.details, retryable: error.retryable });
-    } else {
-      setStatus({ kind: 'error', message: fallback, details: [], retryable: false });
-    }
-  };
+  const fail = useCallback(
+    (error: unknown, fallback: string) => {
+      if (error instanceof ApiRequestError) {
+        setStatus({ kind: 'error', message: error.message, details: error.details, retryable: error.retryable });
+      } else {
+        setStatus({ kind: 'error', message: fallback, details: [], retryable: false });
+      }
+    },
+    [],
+  );
 
   const applyGraded = (graded: GradedPaper) => {
     setResult(graded.result);
@@ -74,16 +94,18 @@ export function App() {
   /* ------------------------------- actions ------------------------------- */
 
   const gradeDocument = async (id: string) => {
-    setStatus({ kind: 'busy', message: 'Marking the paper…' });
+    setStatus({ kind: 'busy', message: 'Marking against the rubric…' });
     try {
-      applyGraded(await api.grade(id));
+      const graded = await api.grade(id);
+      applyGraded(graded);
+      toast(`Marked: ${graded.result.totalMarks} / ${graded.result.maxMarks}`);
     } catch (error) {
       fail(error, 'Marking failed.');
     }
   };
 
   const loadSample = async (slug: string) => {
-    setStatus({ kind: 'busy', message: `Loading ${slug}…` });
+    setStatus({ kind: 'busy', message: `Reading ${slug}.pdf…` });
     setResult(null);
     setAnnotations([]);
     try {
@@ -119,12 +141,21 @@ export function App() {
     }
   };
 
+  const backToStart = () => {
+    setDocumentId(null);
+    setResult(null);
+    setAnnotations([]);
+    setSelectedId(null);
+    setDrawMode(false);
+    setStatus({ kind: 'idle' });
+    void refreshHistory();
+  };
+
   /* ---------------------- annotation editing (no re-grade) ---------------- */
 
   /**
-   * Each of these updates local state immediately and persists in the
-   * background. None of them calls /api/grade — the marks on screen are the
-   * marks that were awarded, however much the mark-up is rearranged.
+   * None of these calls /api/grade. The marks on screen are the marks that were
+   * awarded, however much the mark-up is rearranged.
    */
 
   const moveAnnotation = async (id: string, rect: Rect) => {
@@ -136,6 +167,7 @@ export function App() {
     try {
       const updated = await api.updateAnnotation(result!.id, id, { rect });
       setAnnotations((current) => current.map((a) => (a.id === id ? updated : a)));
+      toast('Annotation moved · marks unchanged');
     } catch (error) {
       fail(error, 'Could not save the new position.');
     }
@@ -149,6 +181,7 @@ export function App() {
     try {
       const updated = await api.updateAnnotation(result!.id, id, patch);
       setAnnotations((current) => current.map((a) => (a.id === id ? updated : a)));
+      toast('Saved · marks unchanged');
     } catch (error) {
       fail(error, 'Could not save the annotation.');
     } finally {
@@ -162,6 +195,7 @@ export function App() {
     setSelectedId(null);
     try {
       await api.deleteAnnotation(result!.id, id);
+      toast('Annotation deleted · marks unchanged');
     } catch (error) {
       setAnnotations(previous); // put it back if the server disagreed
       fail(error, 'Could not delete the annotation.');
@@ -181,6 +215,7 @@ export function App() {
       });
       setAnnotations((current) => [...current, created]);
       setSelectedId(created.id);
+      toast('Annotation added');
     } catch (error) {
       fail(error, 'Could not add the annotation.');
     }
@@ -192,6 +227,7 @@ export function App() {
     try {
       await api.exportAnnotated(result.id, `${result.studentAnswerFilename.replace(/\.pdf$/i, '')}-annotated.pdf`);
       setStatus({ kind: 'idle' });
+      toast('Annotated PDF downloaded');
     } catch (error) {
       fail(error, 'Could not export the annotated copy.');
     }
@@ -199,86 +235,109 @@ export function App() {
 
   /* -------------------------------- render -------------------------------- */
 
+  const busy = status.kind === 'busy';
+  const inWorkspace = documentId !== null;
+
   return (
     <div className="app">
       <header className="app-header">
-        <div className="brand">
-          <h1>GradeSense</h1>
-          <span className="tagline">explainable marking with annotations you can edit</span>
+        <button type="button" className="brand" onClick={backToStart} title="Back to the start">
+          <span className="brand-mark">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 12.5l5 5L20 6.5" />
+            </svg>
+          </span>
+          <span className="brand-text">
+            <span className="brand-name">GradeSense</span>
+            <span className="brand-sub">explainable marking</span>
+          </span>
+        </button>
+
+        <div className="header-right">
+          {inWorkspace && (
+            <button type="button" className="btn btn-sm btn-ghost" onClick={backToStart}>
+              ← All papers
+            </button>
+          )}
+          {health && (
+            <span className={`provider-pill${health.live ? ' live' : ''}`}>
+              <span className="pulse-dot" />
+              {health.live ? `live · ${health.model}` : 'deterministic mock · no API key'}
+            </span>
+          )}
         </div>
-        {health && (
-          <div className={`provider-badge ${health.live ? 'live' : 'mock'}`}>
-            {health.live ? `live · ${health.model}` : 'deterministic mock · no API key needed'}
-          </div>
-        )}
       </header>
 
-      <div className="toolbar">
-        <div className="toolbar-group">
-          <label className="file-button">
-            Upload an answer PDF
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void uploadAndGrade(file);
-                event.target.value = '';
-              }}
-            />
-          </label>
-
-          {samples.length > 0 && (
-            <div className="sample-group">
-              <span className="toolbar-label">or mark a sample:</span>
-              {samples.map((slug) => (
-                <button key={slug} type="button" className="chip" onClick={() => void loadSample(slug)}>
-                  {slug}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {result && (
-          <div className="toolbar-group right">
-            <button
-              type="button"
-              className={drawMode ? 'active' : ''}
-              onClick={() => setDrawMode((current) => !current)}
-              title="Drag on the paper to add your own annotation"
-            >
-              {drawMode ? 'Click and drag on the paper…' : '+ Add annotation'}
-            </button>
-            <button type="button" className="primary" onClick={() => void exportPdf()}>
-              Export annotated PDF
-            </button>
+      {inWorkspace && (
+        <div className="toolbar">
+          <div className="toolbar-group">
+            <span className="toolbar-file">
+              <strong>{result?.studentAnswerFilename ?? 'Answer paper'}</strong>
+              {result && <span>· {annotations.length} annotations</span>}
+            </span>
           </div>
-        )}
-      </div>
 
-      {status.kind === 'busy' && <div className="banner busy">{status.message}</div>}
-      {status.kind === 'error' && (
-        <div className="banner error">
-          <strong>{status.message}</strong>
-          {status.details.length > 0 && (
-            <ul>
-              {status.details.map((detail, index) => (
-                <li key={index}>{detail}</li>
-              ))}
-            </ul>
-          )}
-          {status.retryable && documentId && (
-            <button type="button" onClick={() => void gradeDocument(documentId)}>
-              Try again
-            </button>
+          {result && (
+            <div className="toolbar-group">
+              <button
+                type="button"
+                className={`btn btn-sm${drawMode ? ' btn-active' : ''}`}
+                onClick={() => setDrawMode((current) => !current)}
+                title="Drag on the paper to add your own annotation"
+              >
+                {drawMode ? 'Drag on the paper…' : '+ Add annotation'}
+              </button>
+              <button type="button" className="btn btn-sm btn-primary" onClick={() => void exportPdf()}>
+                Export annotated PDF
+              </button>
+            </div>
           )}
         </div>
       )}
 
-      <main className="layout">
-        <section className="paper-column">
-          {documentId ? (
+      {status.kind === 'busy' && (
+        <div className="banner busy">
+          <span className="spinner" />
+          <span>{status.message}</span>
+        </div>
+      )}
+      {status.kind === 'error' && (
+        <div className="banner error">
+          <div>
+            <strong>{status.message}</strong>
+            {status.details.length > 0 && (
+              <ul>
+                {status.details.map((detail, index) => (
+                  <li key={index}>{detail}</li>
+                ))}
+              </ul>
+            )}
+            {status.retryable && documentId && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ marginTop: 8 }}
+                onClick={() => void gradeDocument(documentId)}
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!inWorkspace ? (
+        <LandingHero
+          samples={samples}
+          history={history}
+          busy={busy}
+          onPick={(slug) => void loadSample(slug)}
+          onOpen={(id) => void openFromHistory(id)}
+          onUpload={(file) => void uploadAndGrade(file)}
+        />
+      ) : (
+        <main className="layout">
+          <section className="paper-column">
             <PaperViewer
               fileUrl={api.documentFileUrl(documentId)}
               annotations={annotations}
@@ -288,104 +347,42 @@ export function App() {
               onMoved={(id, rect) => void moveAnnotation(id, rect)}
               onDrawn={(rect) => void addAnnotation(rect)}
             />
-          ) : (
-            <EmptyState history={history} onOpen={(id) => void openFromHistory(id)} />
-          )}
-        </section>
+          </section>
 
-        <aside className="side-column">
-          {selected ? (
-            <AnnotationEditor
-              annotation={selected}
-              saving={savingAnnotation}
-              onChange={(patch) => void editAnnotation(selected.id, patch)}
-              onDelete={() => void deleteAnnotation(selected.id)}
-              onClose={() => setSelectedId(null)}
-            />
-          ) : result ? (
-            <RubricPanel
-              result={result}
-              annotations={annotations}
-              selectedId={selectedId}
-              onSelectAnnotation={setSelectedId}
-            />
-          ) : (
-            <div className="placeholder">
-              <p>Upload an answer paper or pick a sample to see the marking.</p>
-            </div>
-          )}
-
-          {history.length > 0 && (
-            <HistoryList
-              history={history}
-              activeId={result?.id ?? null}
-              onOpen={(id) => void openFromHistory(id)}
-            />
-          )}
-        </aside>
-      </main>
-    </div>
-  );
-}
-
-function EmptyState({
-  history,
-  onOpen,
-}: {
-  history: GradingSummary[];
-  onOpen: (id: string) => void;
-}) {
-  return (
-    <div className="empty-state">
-      <h2>Nothing loaded yet</h2>
-      <p>
-        Upload a student answer, or mark one of the sample papers from the toolbar. The sample set also
-        loads the question paper and the marking scheme.
-      </p>
-      {history.length > 0 && (
-        <>
-          <h3>Recently marked</h3>
-          <ul className="empty-history">
-            {history.slice(0, 5).map((entry) => (
-              <li key={entry.id}>
-                <button type="button" className="link" onClick={() => onOpen(entry.id)}>
-                  {entry.studentAnswerFilename} — {entry.totalMarks}/{entry.maxMarks}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+          <aside className="side-column">
+            {selected ? (
+              <div className="panel">
+                <AnnotationEditor
+                  annotation={selected}
+                  saving={savingAnnotation}
+                  onChange={(patch) => void editAnnotation(selected.id, patch)}
+                  onDelete={() => void deleteAnnotation(selected.id)}
+                  onClose={() => setSelectedId(null)}
+                />
+              </div>
+            ) : result ? (
+              <div className="panel">
+                <RubricPanel
+                  result={result}
+                  annotations={annotations}
+                  selectedId={selectedId}
+                  onSelectAnnotation={setSelectedId}
+                />
+              </div>
+            ) : (
+              <div className="panel viewer-message">Marking…</div>
+            )}
+          </aside>
+        </main>
       )}
-    </div>
-  );
-}
 
-function HistoryList({
-  history,
-  activeId,
-  onOpen,
-}: {
-  history: GradingSummary[];
-  activeId: string | null;
-  onOpen: (id: string) => void;
-}) {
-  return (
-    <details className="history" open={activeId === null}>
-      <summary>History ({history.length})</summary>
-      <ul>
-        {history.map((entry) => (
-          <li key={entry.id} className={entry.id === activeId ? 'active' : ''}>
-            <button type="button" onClick={() => onOpen(entry.id)}>
-              <span className="history-name">{entry.studentAnswerFilename}</span>
-              <span className="history-score">
-                {entry.totalMarks}/{entry.maxMarks}
-              </span>
-              {entry.requiresHumanReview && <span className="history-flag" title="Needs review">review</span>}
-              <span className="history-date">{new Date(entry.createdAt).toLocaleString()}</span>
-            </button>
-          </li>
+      <div className="toasts" aria-live="polite">
+        {toasts.map((entry) => (
+          <div key={entry.id} className={`toast ${entry.tone}`}>
+            {entry.tone === 'ok' ? '✓' : '!'} {entry.text}
+          </div>
         ))}
-      </ul>
-    </details>
+      </div>
+    </div>
   );
 }

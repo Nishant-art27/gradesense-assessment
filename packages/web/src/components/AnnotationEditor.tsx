@@ -38,7 +38,7 @@ export function AnnotationEditor({
     <div className="annotation-editor">
       <header>
         <h3>Annotation</h3>
-        <button type="button" className="ghost" onClick={onClose} aria-label="Close">
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
           ✕
         </button>
       </header>
@@ -99,13 +99,13 @@ export function AnnotationEditor({
       <div className="editor-actions">
         <button
           type="button"
-          className="primary"
+          className="btn btn-primary btn-sm"
           disabled={!dirty || saving}
           onClick={() => onChange({ comment, correction: correction.length > 0 ? correction : null })}
         >
           {saving ? 'Saving…' : 'Save changes'}
         </button>
-        <button type="button" className="danger" onClick={onDelete} disabled={saving}>
+        <button type="button" className="btn btn-danger btn-sm" onClick={onDelete} disabled={saving}>
           Delete
         </button>
       </div>
