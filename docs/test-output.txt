@@ -1,0 +1,128 @@
+GradeSense — test output
+Generated: 2026-09-01 12:42 UTC
+Node v24.15.0, provider: mock (no API key required)
+
+Command: npm test
+================================================================
+
+
+> gradesense@1.0.0 test
+> vitest run
+
+
+ RUN  v3.2.7 /Users/nishant/Documents/GradeSense_Assignment
+
+ ✓ packages/server/src/grading/text-match.test.ts > OCR folding > collapses the confusions it covers to identical strings 1ms
+ ✓ packages/server/src/grading/text-match.test.ts > OCR folding > leaves confusions outside its table to edit distance 0ms
+ ✓ packages/server/src/grading/text-match.test.ts > OCR folding > does not collapse words that merely look similar 0ms
+ ✓ packages/server/src/grading/text-match.test.ts > token similarity > rates OCR-damaged words as near-identical 0ms
+ ✓ packages/server/src/grading/text-match.test.ts > token similarity > rates a substituted content word as clearly different 0ms
+ ✓ packages/server/src/grading/text-match.test.ts > finding a phrase > matches exactly, ignoring punctuation and spacing differences 0ms
+ ✓ packages/server/src/grading/text-match.test.ts > finding a phrase > matches through OCR damage 0ms
+ ✓ packages/server/src/grading/text-match.test.ts > finding a phrase > refuses a phrase whose meaning is inverted by one word 0ms
+ ✓ packages/server/src/grading/text-match.test.ts > finding a phrase > returns null when the phrase simply is not there 0ms
+ ✓ packages/server/src/grading/text-match.test.ts > quote framing > expands a match to its containing sentence 0ms
+ ✓ packages/server/src/grading/text-match.test.ts > quote framing > quotes a few words around a single misspelling 0ms
+ ✓ packages/server/src/grading/text-match.test.ts > quote framing > does not let a window cross a line break 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > the JSON schema sent to the model > requires every key the Zod schema expects 1ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > the JSON schema sent to the model > leaves no optional keys anywhere, so nothing can be quietly omitted 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > the JSON schema sent to the model > matches the criterion keys in the Zod schema 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > the JSON schema sent to the model > matches the finding keys in the Zod schema 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > the JSON schema sent to the model > uses the same enum values as the shared constants 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > accepts output that satisfies the contract 1ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > reports readable, path-prefixed errors for bad output 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > rejects null outright 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > rejects undefined outright 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > rejects 42 outright 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > rejects a string outright 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > rejects %s outright 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > rejects {} outright 0ms
+ ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > rejects an unknown criterion status 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > places a verbatim quote exactly 1ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > produces one box per line for a quote that wraps 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > boxes a phrase inside a line rather than the whole line 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > finds a quote on the second page 1ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > still anchors a quote through OCR damage 1ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > reports unresolved rather than guessing at a quote that is absent 4ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > refuses a quote too short to place unambiguously 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > prefers the hinted page but does not insist on it 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > accepts a sensible region and marks it approximate 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > clamps a region that runs off the page 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > clamps a page index beyond the document 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > rejects a missing region 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > survives nonsense coordinates 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > margin notes > sit inside the page and do not overlap each other 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > margin notes > stay on the page however many are needed 1ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a fully correct answer > is awarded full marks with no invented deductions 178ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a fully correct answer > is confident and needs no human review 9ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > lands on the score the error key predicts 19ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > penalises exactly the planted mistakes and credits the rest 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > grades the essay on reasoning rather than agreement with the model answer 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > anchors its annotations to real positions on the page 9ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > reports the diagram fault as a region, since there is no text to quote 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > sizes the diagram region to the diagram, not into the next answer 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > puts the graph region on the page the graph is actually on 8ms
+ ✓ packages/server/src/api.test.ts > uploading documents > ingests a PDF and reports its pages and hash 175ms
+ ✓ packages/server/src/api.test.ts > uploading documents > rejects a file that is not a PDF 2ms
+ ✓ packages/server/src/api.test.ts > uploading documents > rejects an unknown document kind 1ms
+ ✓ packages/server/src/api.test.ts > uploading documents > serves the stored original back for the viewer 10ms
+ ✓ packages/server/src/api.test.ts > grading over HTTP > returns the result with its annotations and saves it to history 32ms
+ ✓ packages/server/src/api.test.ts > grading over HTTP > can reopen a saved result later 24ms
+ ✓ packages/server/src/api.test.ts > grading over HTTP > 404s for a result that does not exist 1ms
+ ✓ packages/server/src/api.test.ts > grading over HTTP > rejects grading a document that is not a student answer 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > flags the weakest question for review even though the paper average looks fine 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an incorrect answer > scores near zero 9ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an incorrect answer > backs every deduction with a quote that is actually in the answer 3ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a blank answer > scores zero without ever calling the grading model 3ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a blank answer > is flagged for a human rather than treated as a settled zero 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an answer with OCR-like spelling errors > still credits correct content despite the character damage 17ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an answer with OCR-like spelling errors > reports the misspellings separately instead of deducting for them 10ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an answer with OCR-like spelling errors > anchors the damaged quotes by fuzzy match 9ms
+ ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > is repaired by re-asking, and the repair is recorded 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > degrades to "ungraded" rather than inventing marks when it never recovers 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > survives not-json output without throwing 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > survives truncated output without throwing 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > survives wrong-shape output without throwing 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > retries a server failure and then reports the outage instead of marks 1204ms
+ ✓ packages/server/src/api.test.ts > grading over HTTP > reports a model outage as a retryable 503 and saves nothing 1213ms
+ ✓ packages/server/src/api.test.ts > editing annotations without re-grading > moves an annotation and leaves every mark untouched 42ms
+ ✓ packages/server/src/api.test.ts > editing annotations without re-grading > rewrites a comment and correction in place 21ms
+ ✓ packages/server/src/api.test.ts > editing annotations without re-grading > deletes an annotation 18ms
+ ✓ packages/server/src/api.test.ts > editing annotations without re-grading > lets a teacher add their own annotation 16ms
+ ✓ packages/server/src/api.test.ts > editing annotations without re-grading > rejects an empty update and an out-of-range rectangle 17ms
+ ✓ packages/server/src/api.test.ts > editing annotations without re-grading > 404s when the annotation is not there 19ms
+ ✓ packages/server/src/api.test.ts > exporting an annotated copy > returns a PDF and leaves the original file byte-identical 39ms
+ ✓ packages/server/src/api.test.ts > exporting an annotated copy > reflects the teacher's edits rather than the original marking 34ms
+ ✓ packages/server/src/api.test.ts > meta endpoints > reports which provider is in use 1ms
+ ✓ packages/server/src/api.test.ts > meta endpoints > serves the rubric with consistent arithmetic 1ms
+ ✓ packages/server/src/api.test.ts > meta endpoints > 404s on an unknown endpoint 1ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > retries a rate_limit failure and then reports the outage instead of marks 1203ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > retries a connection failure and then reports the outage instead of marks 1204ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > surfaces as a retryable 503 so the caller knows to try again 1205ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > recovers when a transient failure clears on retry 429ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model that awards more marks than exist > clamps every criterion into range and recomputes the total 1ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model that awards more marks than exist > records each correction in the audit trail 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model that awards more marks than exist > flags the paper for review, because silently corrected marks are not trustworthy 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model that cites evidence which is not in the answer > marks the citation unverified rather than showing it as fact 22ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model that cites evidence which is not in the answer > refuses to draw annotations from a quote that does not exist 15ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model that cites evidence which is not in the answer > collapses confidence and demands review 14ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for student-answer under the normal provider 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for fully-correct under the normal provider 6ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for incorrect under the normal provider 3ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for blank under the normal provider 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for ocr-errors under the normal provider 9ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for student-answer under a model that overscores 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for fully-correct under a model that overscores 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for incorrect under a model that overscores 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for blank under a model that overscores 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for ocr-errors under a model that overscores 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > keep the total equal to the sum of the rubric points 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > account for every rubric criterion in the result 7ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > always report a confidence between 0 and 1 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > give a reason whenever review is demanded 26ms
+
+ Test Files  5 passed (5)
+      Tests  108 passed (108)
+   Start at  18:12:20
+   Duration  6.00s (transform 192ms, setup 0ms, collect 583ms, tests 7.61s, environment 0ms, prepare 185ms)
+

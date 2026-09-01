@@ -1,0 +1,842 @@
+/*
+ * Deliberately plain. The brief says not to spend time on a design system, so
+ * this is one stylesheet of readable, functional CSS: enough hierarchy to make
+ * the marking easy to scan, and clear colour coding for annotation types that
+ * matches the colours used in the exported PDF.
+ */
+
+:root {
+  --ink: #16181d;
+  --muted: #61656e;
+  --faint: #8a8f99;
+  --line: #dfe2e8;
+  --surface: #ffffff;
+  --ground: #f4f5f7;
+
+  --accent: #1f5fa9;
+  --accent-soft: #e8f0fa;
+
+  --incorrect: #d62728;
+  --missing: #e37400;
+  --spelling: #2b70c7;
+  --grammar: #5a59bf;
+  --layout: #8c59b3;
+  --praise: #1a8c4d;
+
+  --radius: 6px;
+  --shadow: 0 1px 2px rgba(16, 18, 22, 0.06), 0 4px 12px rgba(16, 18, 22, 0.05);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 6px 12px;
+  border-radius: var(--radius);
+}
+
+button:hover:not(:disabled) {
+  border-color: #c3c8d1;
+  background: #fafbfc;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #1a5292;
+}
+
+button.danger {
+  color: var(--incorrect);
+  border-color: #f0c4c4;
+}
+
+button.danger:hover:not(:disabled) {
+  background: #fdf3f3;
+}
+
+button.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button.ghost {
+  border: none;
+  background: none;
+  color: var(--faint);
+  padding: 2px 6px;
+}
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 0;
+  text-decoration: underline;
+}
+
+/* ------------------------------- app shell ------------------------------- */
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.tagline {
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.provider-badge {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.provider-badge.live {
+  background: #eaf6ee;
+  border-color: #b9dfc7;
+  color: #1a6b3c;
+}
+
+/* -------------------------------- toolbar -------------------------------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.toolbar-label {
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.sample-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.file-button {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.file-button:hover {
+  background: #1a5292;
+}
+
+.file-button input {
+  display: none;
+}
+
+/* -------------------------------- banners -------------------------------- */
+
+.banner {
+  padding: 10px 20px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.banner.busy {
+  background: var(--accent-soft);
+  color: #17457a;
+}
+
+.banner.error {
+  background: #fdeeee;
+  color: #8f2020;
+}
+
+.banner.error ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.banner.error button {
+  margin-top: 8px;
+}
+
+/* -------------------------------- layout --------------------------------- */
+
+.layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 440px;
+  gap: 16px;
+  padding: 16px 20px 32px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.paper-column {
+  min-width: 0;
+}
+
+.side-column {
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+/* ------------------------------ paper viewer ----------------------------- */
+
+.paper-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pdf-page-wrapper {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.pdf-page-number {
+  padding: 6px 12px;
+  font-size: 11.5px;
+  color: var(--faint);
+  border-bottom: 1px solid var(--line);
+  background: #fbfbfc;
+}
+
+.pdf-page-stack {
+  position: relative;
+  line-height: 0;
+}
+
+.pdf-canvas {
+  display: block;
+  width: 100%;
+}
+
+.viewer-message {
+  padding: 40px;
+  text-align: center;
+  color: var(--faint);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.viewer-message.error {
+  color: #8f2020;
+}
+
+/* --------------------------- annotation overlay -------------------------- */
+
+.annotation-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.annotation-overlay.drawing {
+  cursor: crosshair;
+}
+
+.annotation-box {
+  fill: currentColor;
+  fill-opacity: 0.08;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  cursor: move;
+}
+
+.annotation-box:hover {
+  fill-opacity: 0.16;
+}
+
+.annotation-box.continuation {
+  stroke-dasharray: 3 2;
+  fill-opacity: 0.05;
+}
+
+.annotation-box.drafting {
+  stroke-dasharray: 4 3;
+  color: var(--accent);
+}
+
+.annotation.selected .annotation-box {
+  stroke-width: 2.5;
+  fill-opacity: 0.2;
+}
+
+.annotation-handle {
+  fill: #fff;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  cursor: nwse-resize;
+}
+
+/* Annotation colours, shared with the exported PDF. */
+.annotation.kind-incorrect { color: var(--incorrect); }
+.annotation.kind-missing { color: var(--missing); }
+.annotation.kind-spelling { color: var(--spelling); }
+.annotation.kind-grammar { color: var(--grammar); }
+.annotation.kind-layout { color: var(--layout); }
+.annotation.kind-praise { color: var(--praise); }
+
+/* ------------------------------ rubric panel ----------------------------- */
+
+.rubric-panel,
+.annotation-editor,
+.placeholder,
+.empty-state,
+.history {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.rubric-panel {
+  padding: 16px;
+}
+
+.score-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.score-total {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.score-value {
+  font-size: 34px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.score-max {
+  font-size: 16px;
+  color: var(--faint);
+}
+
+.score-meta {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.score-percent {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.score-provider {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.confidence {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.confidence-track {
+  width: 110px;
+  height: 6px;
+  background: #eceef1;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.confidence-fill.high { background: #1a8c4d; }
+.confidence-fill.medium { background: #d99100; }
+.confidence-fill.low { background: var(--incorrect); }
+
+.confidence-label {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.review-banner {
+  margin: 14px 0;
+  padding: 10px 12px;
+  background: #fff7ec;
+  border: 1px solid #f0d7ad;
+  border-radius: var(--radius);
+  font-size: 12.5px;
+  color: #7a4a06;
+}
+
+.review-banner ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.question-block {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.question-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.question-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.question-marks {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.state-tag {
+  margin-left: 8px;
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #eceef1;
+  color: var(--muted);
+}
+
+.state-tag.blank { background: #eef1f5; }
+.state-tag.ungraded { background: #fdeeee; color: #8f2020; }
+
+.question-summary {
+  margin: 6px 0 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.criteria {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.criterion {
+  padding: 10px;
+  border-radius: var(--radius);
+  border-left: 3px solid var(--line);
+  background: #fbfbfc;
+}
+
+.criterion.full { border-left-color: var(--praise); }
+.criterion.partial { border-left-color: var(--missing); }
+.criterion.zero { border-left-color: var(--incorrect); }
+.criterion.active { background: var(--accent-soft); }
+
+.criterion-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.criterion-mark {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  min-width: 34px;
+}
+
+.criterion-mark.full { color: var(--praise); }
+.criterion-mark.partial { color: #b36b00; }
+.criterion-mark.zero { color: var(--incorrect); }
+
+.criterion-description {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.criterion-status {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+
+.criterion-reasoning {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.evidence {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid #ccd2da;
+  background: #fff;
+  font-size: 12px;
+  color: #3d414a;
+}
+
+.evidence.clickable {
+  cursor: pointer;
+}
+
+.evidence.clickable:hover {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.evidence.unverified {
+  border-left-color: var(--incorrect);
+  background: #fdf3f3;
+}
+
+.evidence-flag {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: #8f2020;
+}
+
+.criterion-correction {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: #1a5292;
+}
+
+.question-notes,
+.audit-trail {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.question-notes summary,
+.audit-trail summary {
+  cursor: pointer;
+  color: var(--faint);
+}
+
+.question-notes ul,
+.audit-trail ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.audit-trail li {
+  margin-bottom: 6px;
+}
+
+.audit-kind {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.audit-change {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--incorrect);
+}
+
+.audit-detail {
+  display: block;
+  color: var(--faint);
+}
+
+/* --------------------------- annotation editor --------------------------- */
+
+.annotation-editor {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.annotation-editor header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.annotation-editor h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.editor-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.kind-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 11px;
+}
+
+.kind-chip.kind-incorrect { background: var(--incorrect); }
+.kind-chip.kind-missing { background: var(--missing); }
+.kind-chip.kind-spelling { background: var(--spelling); }
+.kind-chip.kind-grammar { background: var(--grammar); }
+.kind-chip.kind-layout { background: var(--layout); }
+.kind-chip.kind-praise { background: var(--praise); }
+
+.provenance.human,
+.provenance.edited {
+  color: var(--accent);
+}
+
+.anchor-note {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  border-radius: var(--radius);
+  background: #fff7ec;
+  color: #7a4a06;
+}
+
+.anchor-note.unresolved {
+  background: #fdeeee;
+  color: #8f2020;
+}
+
+.editor-quote {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid #ccd2da;
+  background: #fbfbfc;
+  font-size: 12px;
+  color: #3d414a;
+}
+
+.annotation-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.annotation-editor textarea,
+.annotation-editor select {
+  font: inherit;
+  font-size: 13px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  resize: vertical;
+  color: var(--ink);
+  background: #fff;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.editor-footnote {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* -------------------------- placeholders, history ------------------------ */
+
+.placeholder,
+.empty-state {
+  padding: 24px;
+  color: var(--muted);
+}
+
+.empty-state h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.empty-state h3 {
+  margin: 20px 0 6px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.empty-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.history {
+  padding: 12px 16px;
+  font-size: 13px;
+}
+
+.history summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.history ul {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history li button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: baseline;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+}
+
+.history li button:hover {
+  background: var(--ground);
+}
+
+.history li.active button {
+  background: var(--accent-soft);
+}
+
+.history-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.history-flag {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #b36b00;
+}
+
+.history-date {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--faint);
+}

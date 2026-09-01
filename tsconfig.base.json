@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": false,
+
+    // Nothing is compiled by tsc — the server runs under tsx and the web app
+    // under Vite — so tsc is used purely as a type checker.
+    "noEmit": true,
+
+    // No baseUrl: paths in an extended config resolve relative to the file that
+    // declares them, which is this one.
+    "paths": {
+      "@gradesense/shared": ["./packages/shared/src/index.ts"]
+    }
+  }
+}

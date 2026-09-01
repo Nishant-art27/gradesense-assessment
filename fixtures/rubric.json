@@ -1,0 +1,133 @@
+{
+  "id": "gradesense-candidate-paper",
+  "title": "GradeSense — Candidate Question Paper",
+  "totalMarks": 15,
+  "questions": [
+    {
+      "id": "q1",
+      "number": 1,
+      "subject": "Science",
+      "maxMarks": 5,
+      "requiresDiagram": true,
+      "prompt": "Explain how a simple electric circuit works and illustrate your explanation with a properly labelled circuit diagram showing a battery, switch, bulb, resistor, ammeter and voltmeter. Your answer should explain how the components are connected, the path followed by electric current, and how changing the resistance affects the current flowing through the circuit.",
+      "modelAnswer": "A simple electric circuit provides a closed path through which electric current can flow. The battery provides the potential difference that drives current through the circuit. The switch is used to open or close the circuit. When the switch is closed, there is a complete conducting path and current can flow through the bulb and resistor. When the switch is open, the path is broken and current does not flow.\n\nThe bulb, resistor, battery, switch and ammeter should be connected in series in the main circuit. The ammeter must be connected in series because it measures the current flowing through the circuit. A voltmeter, however, should be connected in parallel across the bulb, because it measures the potential difference between the two ends of the bulb.\n\nA properly labelled diagram would therefore show the battery connected to the switch, resistor, bulb and ammeter in a single closed loop, with the voltmeter connected across the bulb. The conventional current direction should be shown from the positive terminal of the battery through the external circuit towards the negative terminal.\n\nThe amount of current flowing through the circuit depends on both the potential difference and the resistance. According to Ohm's law, V = IR. If the voltage of the battery remains constant and the resistance is increased, the current flowing through the circuit decreases. Conversely, reducing the resistance allows more current to flow.\n\nA full-credit diagram should contain: battery, switch, resistor, bulb, ammeter in series, voltmeter in parallel across the bulb, connecting wires forming a complete circuit, appropriate component labels, and the conventional current direction.",
+      "guidance": [
+        "The student does not need to reproduce the model answer word-for-word.",
+        "\"If resistance increases, less current will flow because the voltage remains constant\" should receive credit even without explicitly writing Ohm's law.",
+        "A student may draw the circuit using slightly different physical layouts and still receive full marks if the electrical relationships are correct.",
+        "If the student places the voltmeter in series with the bulb, that is a substantive error and must affect the relevant rubric mark."
+      ],
+      "criteria": [
+        {
+          "id": "q1c1",
+          "description": "Correctly represents the main circuit with battery, switch, bulb and resistor connected in a closed series path",
+          "maxMarks": 1
+        },
+        {
+          "id": "q1c2",
+          "description": "Correct placement of ammeter in series and voltmeter in parallel across the bulb",
+          "maxMarks": 1
+        },
+        {
+          "id": "q1c3",
+          "description": "Correct explanation of current flow and the function of the main components",
+          "maxMarks": 1
+        },
+        {
+          "id": "q1c4",
+          "description": "Correctly explains the relationship between resistance and current, including the relevant principle/Ohm's law",
+          "maxMarks": 1
+        },
+        {
+          "id": "q1c5",
+          "description": "Clear, logically structured explanation with appropriate labels and current direction in the diagram",
+          "maxMarks": 1
+        }
+      ]
+    },
+    {
+      "id": "q2",
+      "number": 2,
+      "subject": "English",
+      "maxMarks": 5,
+      "requiresDiagram": false,
+      "prompt": "\"Technology has made information easier to access, but easier access to information does not necessarily mean better learning.\" Discuss this statement in detail. Write a well-structured response explaining whether you believe technology makes students better learners or makes them dependent on easily available answers. Support your argument with relevant examples, consider an opposing viewpoint, and conclude with your own reasoned opinion.",
+      "modelAnswer": "Technology has significantly changed the way students learn because information that was once difficult to access is now available within seconds. Students can use educational websites, digital libraries, videos and interactive tools to understand concepts that they may not have understood in a classroom. Technology can therefore make learning more flexible and allow students to explore topics according to their own interests and pace. For example, a student struggling with a difficult scientific concept can watch several different explanations until they find one that they understand.\n\nHowever, having easy access to information can also create a problem. Students may become dependent on searching for an answer instead of trying to solve a problem themselves. If a student immediately looks up the solution to every difficult question, they may complete their work but fail to develop their own reasoning and problem-solving abilities. There is also a risk that students may accept inaccurate information simply because it appears online.\n\nIn my opinion, technology does not automatically make students better or worse learners. Its effect depends on how it is used. Technology is most useful when students use it to understand concepts, explore different ideas and check their own work rather than simply copying answers. Therefore, technology should be treated as a tool that supports thinking, not as a replacement for thinking.",
+      "guidance": [
+        "This question is intentionally open-ended. A student does not have to reach the same conclusion as the model answer.",
+        "A student arguing \"technology makes students worse learners because they become dependent on instant answers\" can still receive 5/5 if the argument is developed properly, gives examples, considers the opposing viewpoint and reaches a logical conclusion.",
+        "A student who strongly argues that technology improves education must not lose marks simply because their position differs from the model answer.",
+        "Grade the quality of reasoning, never similarity to the model answer."
+      ],
+      "criteria": [
+        {
+          "id": "q2c1",
+          "description": "Presents a clear position on whether/how technology affects learning",
+          "maxMarks": 1
+        },
+        {
+          "id": "q2c2",
+          "description": "Provides relevant and logically developed arguments supporting the position",
+          "maxMarks": 1
+        },
+        {
+          "id": "q2c3",
+          "description": "Recognises and meaningfully addresses an opposing viewpoint or limitation",
+          "maxMarks": 1
+        },
+        {
+          "id": "q2c4",
+          "description": "Uses relevant examples and demonstrates reasoning rather than merely making unsupported claims",
+          "maxMarks": 1
+        },
+        {
+          "id": "q2c5",
+          "description": "Provides a coherent conclusion that follows from the discussion, with clear overall communication",
+          "maxMarks": 1
+        }
+      ]
+    },
+    {
+      "id": "q3",
+      "number": 3,
+      "subject": "Economics",
+      "maxMarks": 5,
+      "requiresDiagram": true,
+      "prompt": "The table shows price against quantity demanded and supplied (₹10/100/20, ₹20/80/40, ₹30/60/60, ₹40/40/80, ₹50/20/100). Draw a properly labelled demand-and-supply graph and explain what the graph tells us about the market, including what happens when the market moves away from equilibrium and how an increase in the cost of production would affect the supply curve and the resulting market equilibrium.",
+      "modelAnswer": "The demand and supply data can be represented on a graph with quantity on the horizontal axis and price on the vertical axis. The demand curve should slope downward from left to right because consumers generally demand a greater quantity when the price is lower. The supply curve should slope upward from left to right because producers are generally willing to supply a greater quantity when the price is higher.\n\nThe two curves intersect at a price of ₹30 and a quantity of 60 units. This point represents the market equilibrium because at this price the quantity demanded is equal to the quantity supplied.\n\nIf the market price is below the equilibrium price, quantity demanded is greater than quantity supplied. This creates a shortage because consumers want to buy more than producers are willing to sell. The shortage creates upward pressure on price.\n\nIf the market price is above the equilibrium price, quantity supplied is greater than quantity demanded. This creates a surplus because producers have more goods available than consumers are willing to purchase. The surplus creates downward pressure on price.\n\nIf the cost of producing the product increases, production becomes less profitable at each existing price. Producers will therefore be willing to supply less at each price. The supply curve shifts to the left/upward, from the original supply curve to a new supply curve.\n\nThe new equilibrium would generally occur at a higher price and lower quantity, assuming demand remains unchanged.",
+      "guidance": [
+        "Quantity belongs on the horizontal axis and price on the vertical axis; swapping them is a substantive plotting error.",
+        "The equilibrium is ₹30 and 60 units.",
+        "Below equilibrium there is a shortage; above equilibrium there is a surplus. Reversing these two is a substantive error.",
+        "A student may draw the graph roughly by hand and still earn the plotting mark if the slopes and labels are correct."
+      ],
+      "criteria": [
+        {
+          "id": "q3c1",
+          "description": "Correctly plots and labels the demand and supply curves, with appropriate axes and direction",
+          "maxMarks": 1
+        },
+        {
+          "id": "q3c2",
+          "description": "Correctly identifies the equilibrium at ₹30 and 60 units and explains why it is equilibrium",
+          "maxMarks": 1
+        },
+        {
+          "id": "q3c3",
+          "description": "Correctly explains shortage below equilibrium and surplus above equilibrium",
+          "maxMarks": 1
+        },
+        {
+          "id": "q3c4",
+          "description": "Correctly explains that increased production costs shift the supply curve left/upward",
+          "maxMarks": 1
+        },
+        {
+          "id": "q3c5",
+          "description": "Correctly explains the resulting tendency toward a higher equilibrium price and lower equilibrium quantity, with the change represented appropriately on the graph",
+          "maxMarks": 1
+        }
+      ]
+    }
+  ]
+}

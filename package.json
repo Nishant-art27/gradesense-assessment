@@ -1,0 +1,35 @@
+{
+  "name": "gradesense",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Explainable AI grading and annotation tool",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/web"
+  ],
+  "scripts": {
+    "seed": "tsx scripts/generate-answers.ts",
+    "dev": "concurrently -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev --workspace @gradesense/server",
+    "dev:web": "npm run dev --workspace @gradesense/web",
+    "build": "npm run typecheck && npm run build --workspace @gradesense/web",
+    "start": "npm run start --workspace @gradesense/server",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p packages/shared/tsconfig.json && tsc -p packages/server/tsconfig.json && tsc -p packages/web/tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pdfkit": "^0.13.9",
+    "concurrently": "^9.1.0",
+    "pdfkit": "^0.15.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  }
+}
