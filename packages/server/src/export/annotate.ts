@@ -65,7 +65,7 @@ export async function buildAnnotatedPdf(input: AnnotatedPdfInput): Promise<Buffe
   for (const annotation of annotations) {
     const page = pages[annotation.rect.page];
     if (!page) continue;
-    drawAnnotation(page, annotation, boldFont, numbering.get(annotation.id) ?? 0);
+    drawAnnotation(page, annotation, font, boldFont, numbering.get(annotation.id) ?? 0);
   }
 
   addSummaryPage(output, result, annotations, font, boldFont, numbering);
@@ -85,7 +85,13 @@ function toPdfRect(page: PDFPage, rect: Rect): { x: number; y: number; width: nu
   };
 }
 
-function drawAnnotation(page: PDFPage, annotation: Annotation, boldFont: PDFFont, index: number): void {
+function drawAnnotation(
+  page: PDFPage,
+  annotation: Annotation,
+  font: PDFFont,
+  boldFont: PDFFont,
+  index: number,
+): void {
   const colour = COLOURS[annotation.kind];
   const stroke = rgb(colour.r, colour.g, colour.b);
   const rects = [annotation.rect, ...annotation.extraRects];
@@ -152,6 +158,34 @@ function drawAnnotation(page: PDFPage, annotation: Annotation, boldFont: PDFFont
     font: boldFont,
     color: rgb(1, 1, 1),
   });
+
+  /*
+   * A margin note has no student text under it — it exists because the mistake
+   * is something the student never wrote, so there is nothing to underline.
+   * Without a word inside it, the box is just an unexplained rectangle, so the
+   * finding's type goes in it. Boxes that sit on actual text need no label:
+   * what they frame is the explanation.
+   */
+  if (annotation.anchorStatus === 'unresolved') {
+    const label = LABELS[annotation.kind];
+    const size = 7.5;
+    page.drawText(label, {
+      x: anchorBox.x + 5,
+      y: anchorBox.y + anchorBox.height / 2 - size / 2 + 1,
+      size,
+      font: boldFont,
+      color: stroke,
+      opacity: 0.95,
+    });
+    page.drawText('see summary', {
+      x: anchorBox.x + 5,
+      y: anchorBox.y + anchorBox.height / 2 - size / 2 - 8,
+      size: 6,
+      font,
+      color: stroke,
+      opacity: 0.7,
+    });
+  }
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
