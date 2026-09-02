@@ -290,9 +290,9 @@ Rules:
 - Use the question number as printed in the scheme. Never renumber.
 - "criteria" are the scheme's value points: one entry per point, each with exactly the marks the scheme places against it. Write ½ as 0.5 and 1½ as 1.5. Keep the scheme's order and wording. Do not merge two points into one, and do not reword a point into something more general.
 - When the scheme gives a summary box of marks AND the detailed steps, use the detailed steps as the criteria and copy the summary box into modelAnswer.
-- "modelAnswer" is the worked answer, copied as written — equations, values, conclusions. Not a summary.
+- "modelAnswer" holds only the final results and key equations of the worked answer, one per line, with no derivation prose. The scheme's full text is kept separately by the system, so do not copy it here.
 - "guidance" holds the examiner's instructions verbatim, one per entry: "Award full marks for any other correct method", "Any two reasons", "Alternatively: …". These change how the paper is marked and must not be dropped.
-- OR alternatives: a question offering a choice has two complete marking schemes. Put the FIRST alternative's value points in "criteria". Put the second alternative into "guidance" as one entry that begins "OR alternative — if the student attempted the alternative question, mark against these points instead:" followed by its value points and their marks, and copy its worked answer into modelAnswer after a line reading "OR". Never add the two alternatives' marks together.
+- OR alternatives: a question offering a choice has two complete marking schemes. Put the FIRST alternative's value points in "criteria". Put the second alternative into "guidance" as one entry that begins "OR alternative — if the student attempted the alternative question, mark against these points instead:" followed by its value points and their marks. Never add the two alternatives' marks together.
 - "maxMarks" is the question's total as the scheme states it, or null if this excerpt does not say.
 - If the excerpt begins in the middle of a question, record the part you can see and set continuesFromPreviousChunk to true. If a question is cut off at the end, set continuesIntoNextChunk to true.
 - Never invent a value point or a mark the scheme does not contain.`;

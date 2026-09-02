@@ -107,3 +107,14 @@ export function transcriptionReserve(chunkTokens: number): number {
 export function variableAllowance(fixedParts: string[], budget: TokenBudget = currentBudget()): number {
   return Math.max(0, maxPromptTokens(budget) - estimateRequestTokens(fixedParts));
 }
+
+/**
+ * Output tokens to reserve for reading a marking-scheme chunk.
+ *
+ * Smaller than a full transcription: the model returns the value points and
+ * the examiner's notes, while the worked answer is taken from the document
+ * itself (`ingest/chunk.ts#questionTexts`) rather than typed back.
+ */
+export function schemeReserve(chunkTokens: number): number {
+  return Math.ceil(chunkTokens * 0.8 + 700);
+}

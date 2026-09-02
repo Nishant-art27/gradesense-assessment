@@ -249,8 +249,10 @@ export function joinQuestions(
     const stated = fromScheme?.maxMarks ?? fromPaper?.maxMarks ?? null;
     const reconciled = reconcileSummaryBox(fromScheme?.criteria ?? [], stated);
     if (reconciled.note) warnings.push(`Question ${number}: ${reconciled.note}`);
+    const trimmed = trimToStatedTotal(reconciled.criteria, stated);
+    if (trimmed.note) warnings.push(`Question ${number}: ${trimmed.note}`);
 
-    const criteria = reconciled.criteria;
+    const criteria = trimmed.criteria;
     const criteriaSum = criteria.reduce((total, criterion) => total + criterion.maxMarks, 0);
     const maxMarks = stated ?? (criteriaSum > 0 ? criteriaSum : null);
 
@@ -267,7 +269,7 @@ export function joinQuestions(
       prompt: fromPaper?.prompt ?? '',
       maxMarks,
       modelAnswer: fromScheme?.modelAnswer ?? '',
-      guidance: [...reconciled.guidance, ...(fromScheme?.guidance ?? [])],
+      guidance: [...reconciled.guidance, ...trimmed.guidance, ...(fromScheme?.guidance ?? [])],
       requiresDiagram: Boolean(fromPaper?.requiresDiagram || fromScheme?.requiresDiagram),
       criteria,
       sources: {
@@ -285,6 +287,10 @@ export function joinQuestions(
 type Point = { description: string; maxMarks: number };
 
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+
+/** Points the model has labelled as belonging to the question's OR alternative. */
+const looksLikeAlternative = (run: Point[]) =>
+  run.some((point) => /\bOR\b|\balternative\b/.test(point.description));
 
 /**
  * Undoes the commonest transcription mistake in a board-style marking scheme.
@@ -316,6 +322,12 @@ export function reconcileSummaryBox(
 
     const leading = criteria.slice(0, split);
     const trailing = criteria.slice(split);
+
+    // An OR alternative is worth the same as the main question, so it produces
+    // the same two-runs-of-the-total signature — but it is a different question,
+    // not a finer description of this one. Leave it to `trimToStatedTotal`,
+    // which keeps the main points and records the alternative as guidance.
+    if (looksLikeAlternative(leading) || looksLikeAlternative(trailing)) return untouched;
     // The box is the coarser description; the box is also printed first, which
     // settles a tie.
     const [box, steps] = trailing.length < leading.length ? [trailing, leading] : [leading, trailing];
@@ -326,6 +338,55 @@ export function reconcileSummaryBox(
       guidance: [`Mark distribution from the scheme's summary: ${distribution}.`],
       note: `the scheme's summary of marks (${box.map((p) => p.maxMarks).join(' + ')} = ${statedTotal}) was listed alongside its detailed steps, which would have doubled the question. The steps are kept as the criteria and the summary is recorded as guidance.`,
     };
+  }
+
+  return untouched;
+}
+
+/**
+ * Keeps a question's criteria at the total the scheme states.
+ *
+ * After the summary box is dealt with, a model reading a board-style scheme can
+ * still list more than the question is worth: a stray half-mark step under a
+ * part whose marks are already counted, or the OR alternative's points next to
+ * the main question's. The scheme prints the counted points first, so when the
+ * leading run of points adds up to exactly the stated total, that run is the
+ * rubric and everything after it is extra detail. The extra points are not
+ * thrown away — they go into guidance, where the grader still reads them — but
+ * they no longer inflate a five-mark question to eleven. If no run adds up
+ * exactly, nothing is touched and the arithmetic repair downstream reports it.
+ */
+export function trimToStatedTotal(
+  criteria: Point[],
+  statedTotal: number | null,
+): { criteria: Point[]; guidance: string[]; note: string | null } {
+  const untouched = { criteria, guidance: [], note: null };
+  if (statedTotal === null || criteria.length < 2) return untouched;
+
+  const total = criteria.reduce((sum, point) => sum + point.maxMarks, 0);
+  if (total <= statedTotal + 1e-6) return untouched;
+
+  const keepRun = (kept: Point[], extra: Point[], where: 'first' | 'last') => {
+    const listed = extra.map((point) => `${point.description} — ${point.maxMarks}`).join('; ');
+    return {
+      criteria: kept,
+      guidance: [
+        `Further points the scheme lists for this question, not counted separately because their marks fall within the criteria above (or belong to the OR alternative): ${listed}.`,
+      ],
+      note: `the value points added up to ${total} against a stated total of ${statedTotal}. The ${where} ${kept.length} points, which add up to ${statedTotal}, are kept as the criteria; the remaining ${extra.length} (${listed}) are recorded as guidance.`,
+    };
+  };
+
+  let running = 0;
+  for (let split = 1; split < criteria.length; split += 1) {
+    running += criteria[split - 1]!.maxMarks;
+    if (close(running, statedTotal)) return keepRun(criteria.slice(0, split), criteria.slice(split), 'first');
+  }
+
+  running = 0;
+  for (let split = criteria.length - 1; split > 0; split -= 1) {
+    running += criteria[split]!.maxMarks;
+    if (close(running, statedTotal)) return keepRun(criteria.slice(split), criteria.slice(0, split), 'last');
   }
 
   return untouched;

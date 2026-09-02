@@ -85,3 +85,13 @@ describe('transcriptionReserve', () => {
     expect(plan.fits).toBe(true);
   });
 });
+
+describe('schemeReserve', () => {
+  it('is smaller than a full transcription, since the worked answer is not typed back', async () => {
+    const { schemeReserve, transcriptionReserve } = await import('./tokens.js');
+    expect(schemeReserve(2_000)).toBeLessThan(transcriptionReserve(2_000));
+    const fixed = 'x'.repeat(3_200);
+    const plan = planRequest([fixed, 'y'.repeat(2_000 * 3.2)], { ...GROQ_FREE, completionReserve: schemeReserve(2_000) });
+    expect(plan.fits).toBe(true);
+  });
+});

@@ -133,13 +133,13 @@ export const config = {
      * spent, so it is kept to what a full structured answer actually needs
      * rather than a generous round number.
      */
-    completionReserve: num(process.env.MODEL_COMPLETION_RESERVE, PROVIDER === 'groq' ? 4_000 : 16_000),
+    completionReserve: num(process.env.MODEL_COMPLETION_RESERVE, PROVIDER === 'groq' ? 3_500 : 16_000),
     /**
      * Document text per chunk when a paper is read in pieces. Small on Groq
      * because a transcription reply is as long as its chunk and both must fit
      * one 8,000-token request together.
      */
-    chunkTokens: num(process.env.MODEL_CHUNK_TOKENS, PROVIDER === 'groq' ? 1_400 : 12_000),
+    chunkTokens: num(process.env.MODEL_CHUNK_TOKENS, PROVIDER === 'groq' ? 2_000 : 12_000),
     /** Fraction of the request limit deliberately left unused, because the estimate is an estimate. */
     safetyMargin: 0.08,
     /**

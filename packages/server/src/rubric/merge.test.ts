@@ -258,3 +258,101 @@ describe('reconcileSummaryBox', () => {
     expect(warnings.some((w) => w.startsWith('Question 31: the scheme\'s summary of marks'))).toBe(true);
   });
 });
+
+describe('trimToStatedTotal', () => {
+  it('keeps the leading points that add up to the stated total and moves the rest to guidance', async () => {
+    const { trimToStatedTotal } = await import('./merge.js');
+    const out = trimToStatedTotal(
+      [
+        { description: "Deriving lens maker's formula", maxMarks: 3 },
+        { description: 'Finding the image distance', maxMarks: 2 },
+        { description: 'Labelled ray diagram', maxMarks: 1 },
+        { description: 'Deriving the mirror formula (OR option)', maxMarks: 2 },
+        { description: 'Focal length of the mirror (OR option)', maxMarks: 2 },
+        { description: 'Ray diagram (OR option)', maxMarks: 1 },
+      ],
+      5,
+    );
+
+    expect(out.criteria.map((c) => c.maxMarks)).toEqual([3, 2]);
+    expect(out.guidance[0]).toMatch(/Labelled ray diagram — 1; Deriving the mirror formula \(OR option\) — 2/);
+    expect(out.note).toMatch(/added up to 11 against a stated total of 5/);
+  });
+
+  it('handles a stray extra point after the counted ones', async () => {
+    const { trimToStatedTotal } = await import('./merge.js');
+    const out = trimToStatedTotal(
+      [
+        { description: 'Deriving the expression', maxMarks: 2.5 },
+        { description: 'Far-field expression', maxMarks: 0.5 },
+        { description: 'Force and torque', maxMarks: 2 },
+        { description: 'Labelled figure', maxMarks: 0.5 },
+      ],
+      5,
+    );
+    expect(out.criteria).toHaveLength(3);
+    expect(out.guidance[0]).toContain('Labelled figure — 0.5');
+  });
+
+  it('falls back to a trailing run when the extras come first', async () => {
+    const { trimToStatedTotal } = await import('./merge.js');
+    const out = trimToStatedTotal(
+      [
+        { description: 'Diagram', maxMarks: 1 },
+        { description: 'Part (a)', maxMarks: 3 },
+        { description: 'Part (b)', maxMarks: 2 },
+      ],
+      5,
+    );
+    expect(out.criteria.map((c) => c.description)).toEqual(['Part (a)', 'Part (b)']);
+  });
+
+  it('touches nothing when the points already fit, or when no run adds up exactly', async () => {
+    const { trimToStatedTotal } = await import('./merge.js');
+    const fine = [{ description: 'a', maxMarks: 3 }, { description: 'b', maxMarks: 2 }];
+    expect(trimToStatedTotal(fine, 5)).toEqual({ criteria: fine, guidance: [], note: null });
+    const odd = [{ description: 'a', maxMarks: 4 }, { description: 'b', maxMarks: 4 }];
+    expect(trimToStatedTotal(odd, 5)).toEqual({ criteria: odd, guidance: [], note: null });
+    expect(trimToStatedTotal(odd, null)).toEqual({ criteria: odd, guidance: [], note: null });
+  });
+
+  it('is applied when questions are joined, after the summary-box check', () => {
+    const scheme = new Map([
+      [32, {
+        number: 32, maxMarks: 5, modelAnswer: '', guidance: ['Any other correct method'], requiresDiagram: false, chunkIndices: [0],
+        criteria: [
+          { description: "Deriving lens maker's formula", maxMarks: 3 },
+          { description: 'Finding the image distance', maxMarks: 2 },
+          { description: 'Deriving the mirror formula (OR option)', maxMarks: 2 },
+          { description: 'Focal length of the mirror (OR option)', maxMarks: 2 },
+          { description: 'Ray diagram (OR option)', maxMarks: 1 },
+        ],
+      }],
+    ]);
+    const { questions, warnings } = joinQuestions(new Map(), scheme, 'Physics');
+    expect(questions[0]!.maxMarks).toBe(5);
+    expect(questions[0]!.criteria).toHaveLength(2);
+    expect(questions[0]!.guidance).toEqual([expect.stringMatching(/^Further points the scheme lists/), 'Any other correct method']);
+    expect(warnings.some((w) => w.includes('added up to 10 against a stated total of 5'))).toBe(true);
+  });
+});
+
+describe('reconcileSummaryBox with an OR alternative', () => {
+  it('does not mistake the OR alternative for the detailed steps', async () => {
+    const { reconcileSummaryBox } = await import('./merge.js');
+    const main = [
+      { description: "Deriving lens maker's formula", maxMarks: 3 },
+      { description: 'Finding the image distance', maxMarks: 2 },
+    ];
+    const alternative = [
+      { description: 'Deriving the mirror formula (OR option)', maxMarks: 2 },
+      { description: 'Focal length of the mirror (OR option)', maxMarks: 2 },
+      { description: 'Ray diagram (OR option)', maxMarks: 1 },
+    ];
+    expect(reconcileSummaryBox([...main, ...alternative], 5)).toEqual({
+      criteria: [...main, ...alternative],
+      guidance: [],
+      note: null,
+    });
+  });
+});

@@ -308,3 +308,26 @@ export function splitText(text: string, maxTokens: number): string[] {
     .map((piece) => piece.map((line) => line.text).join('\n').trim())
     .filter((piece) => piece.length > 0);
 }
+
+/**
+ * The document's own text for each question, sliced at the question headings.
+ *
+ * Used to carry a marking scheme's worked answer into the rubric verbatim
+ * without asking the model to type it back — a copy the model makes is slower,
+ * costs a reply as long as the source, and can be cut off by the output limit.
+ * The slice is the text from one heading to the next, so OR alternatives and
+ * examiner notes come along in full. Questions whose heading is not found are
+ * absent from the map, and the caller falls back to what the model returned.
+ */
+export function questionTexts(pages: PageText[], expectedNumbers: number[]): Map<number, string> {
+  const blocks = toBlocks(toLines(pages), new Set(expectedNumbers));
+  const out = new Map<number, string>();
+  for (const block of blocks) {
+    if (block.questionNumber === null) continue;
+    const text = block.lines.map((line) => line.text).join('\n').trim();
+    if (text.length === 0) continue;
+    const existing = out.get(block.questionNumber);
+    out.set(block.questionNumber, existing ? `${existing}\n${text}` : text);
+  }
+  return out;
+}

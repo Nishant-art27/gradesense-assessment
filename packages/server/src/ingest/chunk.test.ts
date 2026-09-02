@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PageText } from '@gradesense/shared';
 import { estimateTokens } from '../grading/tokens.js';
-import { chunkDocument, splitChunk, splitText } from './chunk.js';
+import { chunkDocument, questionTexts, splitChunk, splitText } from './chunk.js';
 
 const page = (text: string): PageText => ({ text, runs: [], width: 595, height: 842 }) as unknown as PageText;
 
@@ -121,5 +121,20 @@ describe('splitText', () => {
     expect(pieces.length).toBeGreaterThan(1);
     for (const piece of pieces) expect(estimateTokens(piece)).toBeLessThanOrEqual(limit);
     expect(pieces.join('\n')).toContain('P3 sentence 15');
+  });
+});
+
+describe('questionTexts', () => {
+  it('slices the document at the question headings, keeping everything between them', () => {
+    const pages = [
+      page('MARKING SCHEME\n31\nDeriving the field 2½\nOR\nEquivalent emf 2'),
+      page('32\nLens maker 3\nNote: award full marks for any other method\n33\nFaraday 1'),
+    ];
+    const texts = questionTexts(pages, [31, 32, 33]);
+
+    expect(texts.get(31)).toBe('31\nDeriving the field 2½\nOR\nEquivalent emf 2');
+    expect(texts.get(32)).toBe('32\nLens maker 3\nNote: award full marks for any other method');
+    expect(texts.get(33)).toBe('33\nFaraday 1');
+    expect(texts.has(30)).toBe(false);
   });
 });

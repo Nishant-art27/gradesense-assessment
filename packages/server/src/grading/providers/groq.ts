@@ -30,7 +30,14 @@ import {
   SCHEME_CHUNK_JSON_SCHEMA,
 } from '../output-schema.js';
 import { TokenRateLimiter } from '../rate-limit.js';
-import { currentBudget, estimateTokens, planRequest, transcriptionReserve, variableAllowance } from '../tokens.js';
+import {
+  currentBudget,
+  estimateTokens,
+  planRequest,
+  schemeReserve,
+  transcriptionReserve,
+  variableAllowance,
+} from '../tokens.js';
 import { safeJsonParse } from './json.js';
 
 /**
@@ -171,7 +178,11 @@ export class GroqGradingModel implements GradingModel {
     );
   }
 
-  /** Reads the marking in one excerpt of a marking scheme. Transcription; see above. */
+  /**
+   * Reads the marking in one excerpt of a marking scheme. The reply is the value
+   * points and examiner notes only — the worked answer is taken from the
+   * document itself — so the reserve is smaller than a full transcription.
+   */
   async extractSchemeChunk(input: DocumentChunkInput): Promise<ModelResponse> {
     return this.call(
       SCHEME_CHUNK_SYSTEM_PROMPT,
@@ -179,7 +190,7 @@ export class GroqGradingModel implements GradingModel {
       'marking_scheme_chunk',
       SCHEME_CHUNK_JSON_SCHEMA,
       'read this part of the marking scheme',
-      { completionReserve: transcriptionReserve(estimateTokens(input.chunk.text)), reasoningEffort: 'low' },
+      { completionReserve: schemeReserve(estimateTokens(input.chunk.text)), reasoningEffort: 'low' },
     );
   }
 

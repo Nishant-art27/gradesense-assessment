@@ -153,7 +153,10 @@ describe('staged rubric extraction', () => {
 
     const q33 = draft.rubric.questions.find((q) => q.number === 33)!;
     expect(q33.prompt).toBe('Question 33 as set');
-    expect(q33.modelAnswer).toBe('Worked answer 33');
+    // The worked answer is the scheme's own text for Q33, not the model's copy.
+    expect(q33.modelAnswer).toContain("Stating Faraday's law 1");
+    expect(q33.modelAnswer).toContain('Finding the induced emf 2');
+    expect(q33.modelAnswer).not.toContain('Deriving lens maker');
     expect(q33.criteria.map((c) => c.maxMarks)).toEqual([1, 2, 2]);
     expect(q33.criteria.map((c) => c.id)).toEqual(['q33c1', 'q33c2', 'q33c3']);
     expect(q33.guidance).toEqual(['Award full marks for any other correct method']);

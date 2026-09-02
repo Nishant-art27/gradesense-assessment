@@ -12,7 +12,7 @@ import { config } from '../config.js';
 import { ModelUnavailableError, RequestTooLargeError, RubricInvalidError } from '../errors.js';
 import type { GradingModel, ModelResponse } from '../grading/model.js';
 import { asModelFailure, isTransientModelError } from '../grading/providers/transient.js';
-import { chunkDocument, splitChunk, type DocumentChunk } from '../ingest/chunk.js';
+import { chunkDocument, questionTexts, splitChunk, type DocumentChunk } from '../ingest/chunk.js';
 import { buildRubric } from './parse-scheme.js';
 import { inferCriteria } from './infer-criteria.js';
 import {
@@ -202,6 +202,25 @@ async function stagedExtraction(input: StagedInput): Promise<StagedOutcome> {
     }
   }
   const scheme = mergeSchemeParts(schemeParts);
+
+  /*
+   * The worked answer comes from the scheme's own text, sliced at the question
+   * headings, not from the model. That keeps it complete and verbatim — OR
+   * alternatives, examiner notes and all — and spares the model a reply as long
+   * as the document. The model's abbreviated copy stands in only where a
+   * heading could not be found.
+   */
+  const schemeText = questionTexts(modelAnswer.pages, [...scheme.keys()]);
+  for (const question of scheme.values()) {
+    const sliced = schemeText.get(question.number);
+    if (sliced) {
+      question.modelAnswer = sliced;
+    } else {
+      warnings.push(
+        `Question ${question.number}: its heading could not be located in the marking scheme text, so the model answer is the model's abbreviated copy rather than the scheme's own words.`,
+      );
+    }
+  }
 
   // Join by question number.
   const subject = deriveSubject(questionPaper, modelAnswer);
