@@ -21,3 +21,7 @@ uploads/
 .idea/
 .vscode/
 *.log
+
+# Recording / submission prep — local only
+recording_sample/
+recordingtb.md

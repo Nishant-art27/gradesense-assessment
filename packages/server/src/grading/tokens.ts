@@ -10,8 +10,12 @@ import { config } from '../config.js';
  * high costs a slightly smaller chunk; erring low costs a rejected request.
  */
 
-/** English prose runs about four characters a token; maths and notation run denser. */
-const CHARS_PER_TOKEN = 3.5;
+/**
+ * English prose runs about four characters a token; maths and notation run
+ * denser. Measured against Groq's own count on a CBSE marking scheme, 3.5 was
+ * ten percent light, so this errs further on the side of over-counting.
+ */
+const CHARS_PER_TOKEN = 3.2;
 /** Framing each chat message costs a few tokens beyond its text. */
 const PER_MESSAGE_OVERHEAD = 4;
 /** The JSON schema for structured output rides along with the request. */
@@ -81,6 +85,19 @@ export function planRequest(parts: string[], budget: TokenBudget = currentBudget
 /** The most prompt tokens any single request may carry under the current budget. */
 export function maxPromptTokens(budget: TokenBudget = currentBudget()): number {
   return Math.floor(budget.requestLimit * (1 - budget.safetyMargin)) - budget.completionReserve;
+}
+
+/**
+ * Output tokens to reserve when the model is asked to transcribe a chunk.
+ *
+ * A transcription reply is about as long as the text it copies — the scheme's
+ * value points and worked answer come back nearly verbatim as JSON — and a
+ * reasoning model spends tokens thinking before it writes. A flat reserve sized
+ * for a grading reply cut a scheme chunk off mid-answer; this grows with the
+ * chunk instead.
+ */
+export function transcriptionReserve(chunkTokens: number): number {
+  return Math.ceil(chunkTokens * 1.4 + 900);
 }
 
 /**

@@ -69,3 +69,19 @@ describe('allowances', () => {
     expect(variableAllowance(['x'.repeat(100_000)], GROQ_FREE)).toBe(0);
   });
 });
+
+describe('transcriptionReserve', () => {
+  it('grows with the chunk, since a transcription reply is as long as its source', async () => {
+    const { transcriptionReserve } = await import('./tokens.js');
+    expect(transcriptionReserve(1_400)).toBeGreaterThan(1_400);
+    expect(transcriptionReserve(2_000)).toBeGreaterThan(transcriptionReserve(1_400));
+  });
+
+  it('fits a default Groq chunk and its reply inside one request', async () => {
+    const { transcriptionReserve } = await import('./tokens.js');
+    const chunk = 1_400;
+    const fixed = 'x'.repeat(3_200); // ≈1,000 tokens of system prompt and scaffolding
+    const plan = planRequest([fixed, 'y'.repeat(chunk * 3.2)], { ...GROQ_FREE, completionReserve: transcriptionReserve(chunk) });
+    expect(plan.fits).toBe(true);
+  });
+});

@@ -290,14 +290,33 @@ async function readChunk<T>(input: ReadChunkInput<T>): Promise<Array<{ chunkInde
   }
 
   const parsed = schema.safeParse(response.data);
-  if (!parsed.success) {
-    throw new RubricInvalidError(
-      `The model's reading of the ${what} (pages ${chunk.startPage + 1}–${chunk.endPage + 1}) did not match the expected shape.`,
-      parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`),
+  if (parsed.success) return [{ chunkIndex: chunk.index, value: parsed.data }];
+
+  /*
+   * Unusable output is nearly always a reply cut off by the output limit: the
+   * model copies the excerpt back as JSON, so a bigger excerpt means a longer
+   * reply. A smaller excerpt is the fix, not a re-ask of the same one.
+   */
+  const smaller =
+    depth < MAX_SPLIT_DEPTH ? splitChunk(chunk, Math.max(150, Math.floor(chunk.estimatedTokens / 2))) : [chunk];
+  if (smaller.length > 1) {
+    console.warn(
+      `[rubric] The model's reading of the ${what} (pages ${chunk.startPage + 1}–${chunk.endPage + 1}) was unusable; re-reading it in ${smaller.length} smaller pieces.`,
     );
+    const out: Array<{ chunkIndex: number; value: T }> = [];
+    for (const piece of smaller) {
+      out.push(...(await readChunk({ ...input, chunk: piece, depth: depth + 1 })));
+    }
+    return out;
   }
 
-  return [{ chunkIndex: chunk.index, value: parsed.data }];
+  throw new RubricInvalidError(
+    `The model's reading of the ${what} (pages ${chunk.startPage + 1}–${chunk.endPage + 1}) did not match the expected shape, even for the smallest piece it could be split into.`,
+    [
+      ...parsed.error.issues.slice(0, 5).map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`),
+      `Model reply ended: …${response.raw.slice(-160).replace(/\s+/g, ' ')}`,
+    ],
+  );
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

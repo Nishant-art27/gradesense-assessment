@@ -93,6 +93,15 @@ export async function attributeAnswers(input: AttributeInput): Promise<Attributi
     }
 
     const parsed = AnswerChunkOutputSchema.safeParse(output.data);
+    if (!parsed.success) {
+      // Unusable output: try the excerpt in halves before giving up on it.
+      const smaller = splitChunk(chunk, Math.max(150, Math.floor(chunk.estimatedTokens / 2)));
+      if (smaller.length > 1 && (chunk.part?.count ?? 1) < 8) {
+        queue.unshift(...smaller);
+        continue;
+      }
+    }
+
     const chunkStart = joinedLength;
     processed.push(chunk);
     joinedLength += chunk.text.length + 1;

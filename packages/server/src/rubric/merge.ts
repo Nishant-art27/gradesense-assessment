@@ -246,9 +246,13 @@ export function joinQuestions(
       );
     }
 
-    const criteria = fromScheme?.criteria ?? [];
+    const stated = fromScheme?.maxMarks ?? fromPaper?.maxMarks ?? null;
+    const reconciled = reconcileSummaryBox(fromScheme?.criteria ?? [], stated);
+    if (reconciled.note) warnings.push(`Question ${number}: ${reconciled.note}`);
+
+    const criteria = reconciled.criteria;
     const criteriaSum = criteria.reduce((total, criterion) => total + criterion.maxMarks, 0);
-    const maxMarks = fromScheme?.maxMarks ?? fromPaper?.maxMarks ?? (criteriaSum > 0 ? criteriaSum : null);
+    const maxMarks = stated ?? (criteriaSum > 0 ? criteriaSum : null);
 
     if (maxMarks === null || maxMarks <= 0) {
       warnings.push(
@@ -263,7 +267,7 @@ export function joinQuestions(
       prompt: fromPaper?.prompt ?? '',
       maxMarks,
       modelAnswer: fromScheme?.modelAnswer ?? '',
-      guidance: fromScheme?.guidance ?? [],
+      guidance: [...reconciled.guidance, ...(fromScheme?.guidance ?? [])],
       requiresDiagram: Boolean(fromPaper?.requiresDiagram || fromScheme?.requiresDiagram),
       criteria,
       sources: {
@@ -274,4 +278,55 @@ export function joinQuestions(
   }
 
   return { questions, warnings };
+}
+
+/* ---------------------------- summary-box double count ---------------------------- */
+
+type Point = { description: string; maxMarks: number };
+
+const close = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+
+/**
+ * Undoes the commonest transcription mistake in a board-style marking scheme.
+ *
+ * Such schemes print each question twice over: a summary box giving the marks
+ * for each part (2½ + ½ + 2 = 5), then the detailed steps with the marks for
+ * each (½, ½, 1, … = 5). The prompt asks for the steps as criteria and the box
+ * as model answer, but a model copying at speed sometimes lists both — and then
+ * a five-mark question is worth ten. The signature is unmistakable: the points
+ * split into a leading run and a trailing run that each add up to the stated
+ * total. The coarser run is the box; it is moved into guidance as the mark
+ * distribution, and the steps — the points examiners actually award — stay as
+ * the criteria. Anything that does not fit this exact pattern is left alone.
+ */
+export function reconcileSummaryBox(
+  criteria: Point[],
+  statedTotal: number | null,
+): { criteria: Point[]; guidance: string[]; note: string | null } {
+  const untouched = { criteria, guidance: [], note: null };
+  if (statedTotal === null || criteria.length < 2) return untouched;
+
+  const total = criteria.reduce((sum, point) => sum + point.maxMarks, 0);
+  if (!close(total, statedTotal * 2)) return untouched;
+
+  let running = 0;
+  for (let split = 1; split < criteria.length; split += 1) {
+    running += criteria[split - 1]!.maxMarks;
+    if (!close(running, statedTotal)) continue;
+
+    const leading = criteria.slice(0, split);
+    const trailing = criteria.slice(split);
+    // The box is the coarser description; the box is also printed first, which
+    // settles a tie.
+    const [box, steps] = trailing.length < leading.length ? [trailing, leading] : [leading, trailing];
+
+    const distribution = box.map((point) => `${point.description} — ${point.maxMarks}`).join('; ');
+    return {
+      criteria: steps,
+      guidance: [`Mark distribution from the scheme's summary: ${distribution}.`],
+      note: `the scheme's summary of marks (${box.map((p) => p.maxMarks).join(' + ')} = ${statedTotal}) was listed alongside its detailed steps, which would have doubled the question. The steps are kept as the criteria and the summary is recorded as guidance.`,
+    };
+  }
+
+  return untouched;
 }

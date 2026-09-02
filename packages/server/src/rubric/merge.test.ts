@@ -206,3 +206,55 @@ describe('joinQuestions', () => {
     expect(warnings[0]).toMatch(/Question 9: no marks were stated/);
   });
 });
+
+describe('reconcileSummaryBox', () => {
+  const box = [
+    { description: 'Deriving the expression', maxMarks: 2.5 },
+    { description: 'Far-field expression', maxMarks: 0.5 },
+    { description: 'Force and torque', maxMarks: 2 },
+  ];
+  const steps = [
+    { description: 'Labelled figure', maxMarks: 0.5 },
+    { description: 'E+q', maxMarks: 0.5 },
+    { description: 'E-q', maxMarks: 0.5 },
+    { description: 'Resultant field', maxMarks: 1 },
+    { description: 'r >> a limit', maxMarks: 0.5 },
+    { description: 'F = 0', maxMarks: 1 },
+    { description: 'τ = 0', maxMarks: 1 },
+  ];
+
+  it('drops a summary box that was listed alongside the steps, keeping the steps', async () => {
+    const { reconcileSummaryBox } = await import('./merge.js');
+    const out = reconcileSummaryBox([...box, ...steps], 5);
+
+    expect(out.criteria).toEqual(steps);
+    expect(out.criteria.reduce((t, c) => t + c.maxMarks, 0)).toBe(5);
+    expect(out.guidance[0]).toMatch(/^Mark distribution from the scheme's summary: Deriving the expression — 2.5;/);
+    expect(out.note).toMatch(/2.5 \+ 0.5 \+ 2 = 5/);
+  });
+
+  it('handles the box printed after the steps', async () => {
+    const { reconcileSummaryBox } = await import('./merge.js');
+    const out = reconcileSummaryBox([...steps, ...box], 5);
+    expect(out.criteria).toEqual(steps);
+  });
+
+  it('leaves alone criteria that simply disagree with the stated total', async () => {
+    const { reconcileSummaryBox } = await import('./merge.js');
+    const odd = [{ description: 'a', maxMarks: 3 }, { description: 'b', maxMarks: 3 }, { description: 'c', maxMarks: 1 }];
+    expect(reconcileSummaryBox(odd, 5)).toEqual({ criteria: odd, guidance: [], note: null });
+    expect(reconcileSummaryBox(box, 5)).toEqual({ criteria: box, guidance: [], note: null });
+    expect(reconcileSummaryBox([...box, ...steps], null)).toEqual({ criteria: [...box, ...steps], guidance: [], note: null });
+  });
+
+  it('is applied when questions are joined', () => {
+    const scheme = new Map([
+      [31, { number: 31, maxMarks: 5, modelAnswer: '', guidance: ['Any correct method'], requiresDiagram: false, criteria: [...box, ...steps], chunkIndices: [0] }],
+    ]);
+    const { questions, warnings } = joinQuestions(new Map(), scheme, 'Physics');
+    expect(questions[0]!.maxMarks).toBe(5);
+    expect(questions[0]!.criteria).toHaveLength(7);
+    expect(questions[0]!.guidance).toEqual([expect.stringMatching(/^Mark distribution/), 'Any correct method']);
+    expect(warnings.some((w) => w.startsWith('Question 31: the scheme\'s summary of marks'))).toBe(true);
+  });
+});

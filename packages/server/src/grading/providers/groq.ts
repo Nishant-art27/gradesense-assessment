@@ -30,7 +30,7 @@ import {
   SCHEME_CHUNK_JSON_SCHEMA,
 } from '../output-schema.js';
 import { TokenRateLimiter } from '../rate-limit.js';
-import { planRequest, variableAllowance } from '../tokens.js';
+import { currentBudget, estimateTokens, planRequest, transcriptionReserve, variableAllowance } from '../tokens.js';
 import { safeJsonParse } from './json.js';
 
 /**
@@ -74,6 +74,23 @@ import { safeJsonParse } from './json.js';
 /** Marking is a reasoning task: the same answer should get the same marks twice. */
 const TEMPERATURE = 0;
 
+/** Models on Groq that accept `reasoning_effort`; others reject the parameter. */
+const REASONING_MODELS = /gpt-oss|qwen/i;
+
+type ReasoningEffort = 'low' | 'medium' | 'high';
+
+interface CallOptions {
+  /**
+   * Output tokens to reserve for this call. Defaults to the grading reserve;
+   * transcription calls pass one sized to the chunk they copy.
+   */
+  completionReserve?: number;
+  reasoningEffort?: ReasoningEffort;
+}
+
+/** Attribution replies are a short list, whatever the size of the excerpt. */
+const ATTRIBUTION_RESERVE = 1_500;
+
 /**
  * One limiter for the process, not one per instance: the allowance belongs to
  * the API key, and every request made with it counts against the same minute.
@@ -116,7 +133,9 @@ export class GroqGradingModel implements GradingModel {
       });
     }
 
-    return this.call(SYSTEM_PROMPT, messages, 'question_grading', QUESTION_GRADING_JSON_SCHEMA, 'mark this answer');
+    return this.call(SYSTEM_PROMPT, messages, 'question_grading', QUESTION_GRADING_JSON_SCHEMA, 'mark this answer', {
+      reasoningEffort: config.tokens.reasoningEffort,
+    });
   }
 
   /**
@@ -134,7 +153,13 @@ export class GroqGradingModel implements GradingModel {
     );
   }
 
-  /** Reads the questions in one excerpt of a question paper. */
+  /**
+   * Reads the questions in one excerpt of a question paper.
+   *
+   * Transcription, not judgement: the reply is as long as the excerpt it copies,
+   * so the reserve is sized to the chunk, and the model is told not to think
+   * hard about it — its thinking comes out of the same reply budget.
+   */
   async extractQuestionPaperChunk(input: DocumentChunkInput): Promise<ModelResponse> {
     return this.call(
       QUESTION_PAPER_CHUNK_SYSTEM_PROMPT,
@@ -142,10 +167,11 @@ export class GroqGradingModel implements GradingModel {
       'question_paper_chunk',
       QUESTION_PAPER_CHUNK_JSON_SCHEMA,
       'read this part of the question paper',
+      { completionReserve: transcriptionReserve(estimateTokens(input.chunk.text)), reasoningEffort: 'low' },
     );
   }
 
-  /** Reads the marking in one excerpt of a marking scheme. */
+  /** Reads the marking in one excerpt of a marking scheme. Transcription; see above. */
   async extractSchemeChunk(input: DocumentChunkInput): Promise<ModelResponse> {
     return this.call(
       SCHEME_CHUNK_SYSTEM_PROMPT,
@@ -153,6 +179,7 @@ export class GroqGradingModel implements GradingModel {
       'marking_scheme_chunk',
       SCHEME_CHUNK_JSON_SCHEMA,
       'read this part of the marking scheme',
+      { completionReserve: transcriptionReserve(estimateTokens(input.chunk.text)), reasoningEffort: 'low' },
     );
   }
 
@@ -164,6 +191,7 @@ export class GroqGradingModel implements GradingModel {
       'answer_sheet_chunk',
       ANSWER_CHUNK_JSON_SCHEMA,
       'read this part of the answer sheet',
+      { completionReserve: ATTRIBUTION_RESERVE, reasoningEffort: 'low' },
     );
   }
 
@@ -184,10 +212,13 @@ export class GroqGradingModel implements GradingModel {
     schemaName: string,
     schema: Record<string, unknown>,
     what: string,
+    options: CallOptions = {},
   ): Promise<ModelResponse> {
     // Size it here, before the network. A request the provider would refuse is
     // refused locally as something the caller knows how to split.
-    const plan = planRequest([systemPrompt, ...messages.map((message) => message.content)]);
+    const budget = currentBudget();
+    if (options.completionReserve !== undefined) budget.completionReserve = options.completionReserve;
+    const plan = planRequest([systemPrompt, ...messages.map((message) => message.content)], budget);
     if (!plan.fits) {
       throw new RequestTooLargeError(
         `A request to ${what} would be about ${plan.requested} tokens (≈${plan.promptTokens} of prompt plus ${plan.completionReserve} reserved for the reply), above the ${plan.ceiling}-token ceiling for one request. It has to be split.`,
@@ -206,6 +237,9 @@ export class GroqGradingModel implements GradingModel {
             messages: [{ role: 'system', content: systemPrompt }, ...messages],
             temperature: TEMPERATURE,
             max_completion_tokens: plan.completionReserve,
+            ...(options.reasoningEffort && REASONING_MODELS.test(this.modelName)
+              ? { reasoning_effort: options.reasoningEffort }
+              : {}),
             response_format: {
               type: 'json_schema',
               json_schema: { name: schemaName, schema, strict: true },
@@ -225,6 +259,24 @@ export class GroqGradingModel implements GradingModel {
             plan.ceiling,
             [summariseError(error)],
           );
+        }
+
+        /*
+         * Groq validates the reply against the schema itself and returns a 400
+         * when it does not conform — which is what a reply cut off by the
+         * output cap looks like. That is malformed output, not a refusal: the
+         * partial text is handed back so the caller can repair or split, the
+         * same as it would for any other unusable reply.
+         */
+        const failed = failedGeneration(error);
+        if (failed !== null) {
+          return [
+            {
+              data: safeJsonParse(failed),
+              raw: `${failed}\n\n[Groq rejected this reply as not matching the schema — usually because it was cut off by the ${plan.completionReserve}-token output limit]`,
+            },
+            { usedTokens: null },
+          ];
         }
         throw error;
       }
@@ -278,6 +330,19 @@ function isTooLarge(error: unknown): boolean {
     return /request too large|reduce your message size|tokens per minute/i.test(error.message);
   }
   return false;
+}
+
+/**
+ * The partial reply Groq attaches to a `json_validate_failed` error, or null
+ * when the error is something else.
+ */
+function failedGeneration(error: unknown): string | null {
+  if (!(error instanceof Groq.APIError) || error.status !== 400) return null;
+  const body = (error as { error?: { error?: Record<string, unknown> } }).error?.error ?? {};
+  const isValidation =
+    body.code === 'json_validate_failed' || /failed to validate json/i.test(String(body.message ?? error.message));
+  if (!isValidation) return null;
+  return typeof body.failed_generation === 'string' ? body.failed_generation : '';
 }
 
 function summariseError(error: unknown): string {
