@@ -112,6 +112,33 @@ export const config = {
   uploads: {
     maxBytes: 25 * 1024 * 1024,
   },
+
+  /**
+   * Token budgeting for the model provider.
+   *
+   * Groq admits a request only if `prompt tokens + max_completion_tokens` fits
+   * inside the tokens-per-minute allowance — 8,000 for openai/gpt-oss-120b on
+   * the free tier. So every request is sized against two ceilings at once: the
+   * single-request limit, and the rolling minute shared with the requests
+   * before it. The defaults for the other providers are large enough never to
+   * bite on real input, so they only pay for the accounting.
+   */
+  tokens: {
+    /** Per-request ceiling the provider enforces on prompt + reserved completion. */
+    requestLimit: num(process.env.MODEL_REQUEST_TOKEN_LIMIT, PROVIDER === 'groq' ? 8_000 : 150_000),
+    /** Rolling-minute allowance across all requests. */
+    tokensPerMinute: num(process.env.MODEL_TOKENS_PER_MINUTE, PROVIDER === 'groq' ? 8_000 : 1_000_000),
+    /**
+     * Output tokens reserved on every request. Counted by the provider as if
+     * spent, so it is kept to what a full structured answer actually needs
+     * rather than a generous round number.
+     */
+    completionReserve: num(process.env.MODEL_COMPLETION_RESERVE, PROVIDER === 'groq' ? 3_000 : 16_000),
+    /** Document text per chunk when a paper is read in pieces. */
+    chunkTokens: num(process.env.MODEL_CHUNK_TOKENS, PROVIDER === 'groq' ? 2_500 : 12_000),
+    /** Fraction of the request limit deliberately left unused, because the estimate is an estimate. */
+    safetyMargin: 0.08,
+  },
 } as const;
 
 export type Config = typeof config;

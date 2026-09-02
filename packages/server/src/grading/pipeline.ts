@@ -11,17 +11,22 @@ import {
   type Rubric,
 } from '@gradesense/shared';
 import { config } from '../config.js';
-import { ModelUnavailableError, RubricInvalidError } from '../errors.js';
+import { ModelUnavailableError, RequestTooLargeError, RubricInvalidError } from '../errors.js';
+import { attributeAnswers } from '../ingest/attribute.js';
+import { splitText } from '../ingest/chunk.js';
 import { isBlankAnswer, segmentAnswers, type AnswerSegment } from '../ingest/segment.js';
 import { anchorQuote, anchorRegion, marginNoteRect } from './anchor.js';
 import { combineConfidence, computeConfidence } from './confidence.js';
+import { SYSTEM_PROMPT, buildQuestionPrompt, type GradingModel } from './model.js';
+import { mergePasses } from './passes.js';
 import { asModelFailure, isTransientModelError } from './providers/transient.js';
-import type { GradingModel } from './model.js';
+import { estimateTokens, variableAllowance } from './tokens.js';
 import {
   blankQuestion,
   ungradedQuestion,
   validateQuestionGrading,
   type ConfidenceDraft,
+  type ValidationSuccess,
 } from './validate.js';
 
 export interface RunGradingInput {
@@ -46,7 +51,10 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  *
  * Questions are graded independently, which buys three things: the prompt stays
  * focused on one rubric, an unanswered question can skip the model entirely, and
- * a failure on one question does not corrupt the others.
+ * a failure on one question does not corrupt the others. Independence is also
+ * what keeps each request small: a question's request carries that question's
+ * text, its criteria and its answer — never the whole paper, never the whole
+ * scheme, never another student's work.
  *
  * The exception to that independence is a model outage. If the grader cannot be
  * reached for even one question after every retry, the whole run fails with a
@@ -65,7 +73,7 @@ export async function runGrading(input: RunGradingInput): Promise<RunGradingOutp
     );
   }
 
-  const segments = segmentAnswers(studentDocument.pages, rubric.questions);
+  const { segments, segmentNotes } = await locateAnswers(studentDocument, rubric, model);
   const segmentById = new Map(segments.map((segment) => [segment.questionId, segment]));
 
   const resultId = crypto.randomUUID();
@@ -136,7 +144,7 @@ export async function runGrading(input: RunGradingInput): Promise<RunGradingOutp
     questionResults.push({
       ...graded.result,
       confidence: confidence.value,
-      notes: [...graded.result.notes, ...confidence.factors],
+      notes: [...graded.result.notes, ...confidence.factors, ...segmentNotes],
     });
   }
 
@@ -183,6 +191,48 @@ export async function runGrading(input: RunGradingInput): Promise<RunGradingOutp
   return { result, annotations };
 }
 
+/* ------------------------------ finding answers ----------------------------- */
+
+/**
+ * Works out which text answers which question.
+ *
+ * The heading search in `segmentAnswers` is exact and free, and it is what runs
+ * for any sheet with "Answer 1"-style markers. Its fallback for a sheet without
+ * markers hands the entire document to every question — honest, but for a long
+ * sheet that is one request per question each carrying the whole paper. So when
+ * the fallback fires and the provider can attribute text, the sheet is read in
+ * pieces and each piece is assigned to the question it answers. If attribution
+ * fails for any reason the fallback stands, and the result is flagged for review
+ * exactly as before.
+ */
+async function locateAnswers(
+  studentDocument: IngestedDocument,
+  rubric: Rubric,
+  model: GradingModel,
+): Promise<{ segments: AnswerSegment[]; segmentNotes: string[] }> {
+  const segments = segmentAnswers(studentDocument.pages, rubric.questions);
+
+  const needsAttribution = segments.some((segment) => segment.approximate && segment.text.length > 0);
+  if (!needsAttribution || !model.attributeAnswerChunk) return { segments, segmentNotes: [] };
+
+  const attributed = await attributeAnswers({
+    pages: studentDocument.pages,
+    questions: rubric.questions,
+    model,
+    chunkTokens: config.tokens.chunkTokens,
+    maxAttempts: config.grading.maxModelAttempts,
+    retryBaseDelayMs: config.grading.retryBaseDelayMs,
+  });
+  if (!attributed) return { segments, segmentNotes: [] };
+
+  return {
+    segments: attributed.segments,
+    segmentNotes: [
+      `The answer sheet has no question headings, so the grading model read it in ${attributed.requests} piece${attributed.requests === 1 ? '' : 's'} to work out which text answers which question. Check that the right text was marked.`,
+    ],
+  };
+}
+
 /* ----------------------------- per-question run ---------------------------- */
 
 interface GradeOneInput {
@@ -203,23 +253,126 @@ type GradeOneOutput =
     }
   | { validated: false; result: QuestionResult; audit: AuditEvent[] };
 
+/** Below this many tokens a passage is a fragment, and splitting further is pointless. */
+const MIN_PASSAGE_TOKENS = 120;
+/** Rounds of halving the passage size before giving up on an answer as unsendable. */
+const MAX_SHRINK_ROUNDS = 3;
+
 /**
- * One question, with retries.
+ * One question, sized to fit.
  *
- * Two different kinds of failure are handled, and conflating them would be a
+ * The request for a question is the system prompt, the question with its rubric,
+ * and the student's answer. The first two are fixed; the answer is what varies,
+ * so it is measured against whatever room the fixed parts leave. An answer that
+ * fits — nearly all of them — goes in one request. One that does not is split at
+ * its sub-parts or paragraphs, each passage is graded with the same prompt, and
+ * the passes are merged criterion by criterion (see `passes.ts`). Nothing is
+ * shortened or summarised on the way: the model reads every word the student
+ * wrote, just not all in one breath.
+ *
+ * If the provider still refuses a passage as too large — the estimate is an
+ * estimate — the passages are halved and tried again. If they cannot be halved
+ * further the question is recorded as ungraded with the reason, never silently
+ * cut down.
+ */
+async function gradeOneQuestion(input: GradeOneInput): Promise<GradeOneOutput> {
+  const { question, segment, pdfBase64, studentDocument } = input;
+
+  const fixedParts = [
+    SYSTEM_PROMPT,
+    buildQuestionPrompt({
+      question,
+      answerText: '',
+      pdfBase64: null,
+      pageCount: studentDocument.pageCount,
+      startPage: segment.startPage,
+      pages: [],
+    }),
+  ];
+  let allowance = variableAllowance(fixedParts);
+
+  if (allowance < MIN_PASSAGE_TOKENS) {
+    const ungraded = ungradedQuestion(
+      question,
+      `The rubric for this question is itself too large to send to the grading model within its ${config.tokens.requestLimit}-token limit, leaving no room for the student's answer. Shorten the criteria or model answer, or use a provider with a larger limit.`,
+    );
+    return { validated: false, result: ungraded.result, audit: [ungraded.audit] };
+  }
+
+  let passages = estimateTokens(segment.text) <= allowance ? [segment.text] : splitText(segment.text, allowance);
+  const audit: AuditEvent[] = [];
+
+  for (let round = 0; round <= MAX_SHRINK_ROUNDS; round += 1) {
+    const passes: ValidationSuccess[] = [];
+    let refused: RequestTooLargeError | null = null;
+
+    for (const passage of passages) {
+      const outcome = await gradePassage({ ...input, answerText: passage }, pdfBase64);
+      audit.push(...outcome.audit);
+
+      if (outcome.kind === 'too_large') {
+        refused = outcome.error;
+        break;
+      }
+      if (outcome.kind === 'unvalidated') {
+        return { validated: false, result: outcome.result, audit };
+      }
+      passes.push(outcome.success);
+    }
+
+    if (!refused) {
+      const merged = mergePasses(question, passes);
+      return {
+        validated: true,
+        result: merged.result,
+        findings: merged.findings,
+        audit,
+        confidenceDraft: merged.confidenceDraft,
+      };
+    }
+
+    // The provider disagreed with the estimate. Halve and go again.
+    allowance = Math.floor(allowance / 2);
+    if (allowance < MIN_PASSAGE_TOKENS || round === MAX_SHRINK_ROUNDS) {
+      const ungraded = ungradedQuestion(
+        question,
+        `The answer to this question could not be sent to the grading model within its token limit, even after being split into passages of about ${allowance * 2} tokens. ${refused.message} Nothing was cut from the answer; it needs marking by hand or a provider with a larger limit.`,
+      );
+      return { validated: false, result: ungraded.result, audit: [...audit, ungraded.audit] };
+    }
+    passages = splitText(segment.text, allowance);
+  }
+
+  // Unreachable: every path through the loop returns.
+  throw new Error('gradeOneQuestion fell through its retry loop');
+}
+
+type PassageOutcome =
+  | { kind: 'validated'; success: ValidationSuccess; audit: AuditEvent[] }
+  | { kind: 'unvalidated'; result: QuestionResult; audit: AuditEvent[] }
+  | { kind: 'too_large'; error: RequestTooLargeError; audit: AuditEvent[] };
+
+/**
+ * One passage of one question, with retries.
+ *
+ * Three different kinds of failure are handled, and conflating them would be a
  * mistake. A transient error (rate limit, 5xx, dropped socket) is worth retrying
  * with backoff, because the same request may well succeed. Output that fails
  * schema validation is not — retrying it unchanged would produce the same
  * garbage, so the model is re-asked with its own output and the validation
- * errors attached.
+ * errors attached. And a request refused as too large is neither: it is handed
+ * back to the caller, which knows how to make it smaller.
  */
-async function gradeOneQuestion(input: GradeOneInput): Promise<GradeOneOutput> {
-  const { question, segment, pdfBase64, studentDocument, model } = input;
+async function gradePassage(
+  input: GradeOneInput & { answerText: string },
+  pdfBase64: string,
+): Promise<PassageOutcome> {
+  const { question, segment, studentDocument, model, answerText } = input;
   const audit: AuditEvent[] = [];
 
   const modelInput = {
     question,
-    answerText: segment.text,
+    answerText,
     pdfBase64,
     pageCount: studentDocument.pageCount,
     startPage: segment.startPage,
@@ -242,6 +395,10 @@ async function gradeOneQuestion(input: GradeOneInput): Promise<GradeOneOutput> {
     try {
       response = await model.gradeQuestion(modelInput, context);
     } catch (error) {
+      if (error instanceof RequestTooLargeError) {
+        return { kind: 'too_large', error, audit };
+      }
+
       // A failure retrying cannot fix is reported now, in words rather than
       // in the provider's raw JSON.
       if (!isTransientModelError(error)) throw asModelFailure(error, model.providerName);
@@ -269,7 +426,7 @@ async function gradeOneQuestion(input: GradeOneInput): Promise<GradeOneOutput> {
 
     const validation = validateQuestionGrading(response.data, {
       question,
-      answerText: segment.text,
+      answerText,
       pages: studentDocument.pages,
       repairAttempts,
       approximateSegmentation: segment.approximate,
@@ -288,11 +445,9 @@ async function gradeOneQuestion(input: GradeOneInput): Promise<GradeOneOutput> {
         });
       }
       return {
-        validated: true,
-        result: validation.result,
-        findings: validation.findings,
+        kind: 'validated',
+        success: { ...validation, audit: validation.audit },
         audit: [...audit, ...validation.audit],
-        confidenceDraft: validation.confidenceDraft,
       };
     }
 
@@ -310,7 +465,7 @@ async function gradeOneQuestion(input: GradeOneInput): Promise<GradeOneOutput> {
         .slice(0, 4)
         .join('; ')}`,
     );
-    return { validated: false, result: ungraded.result, audit: [...audit, ungraded.audit] };
+    return { kind: 'unvalidated', result: ungraded.result, audit: [...audit, ungraded.audit] };
   }
 
   // Every attempt ended in a transient failure. This is an outage, not a

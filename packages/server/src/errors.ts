@@ -85,6 +85,25 @@ export class ModelOutputInvalidError extends AppError {
   }
 }
 
+/**
+ * A single request would exceed the provider's per-request token ceiling.
+ *
+ * Never transient: the same request will be refused identically every time, so
+ * the retry-with-backoff loop must not see it. Callers split the content into
+ * smaller chunks and try again. Only when nothing smaller is possible does it
+ * reach the user, and then with the sizes attached so the cause is plain.
+ */
+export class RequestTooLargeError extends AppError {
+  readonly estimatedTokens: number;
+  readonly limitTokens: number;
+
+  constructor(message: string, estimatedTokens: number, limitTokens: number, details: string[] = []) {
+    super('request_too_large', message, { status: 413, retryable: false, details });
+    this.estimatedTokens = estimatedTokens;
+    this.limitTokens = limitTokens;
+  }
+}
+
 export class RubricInvalidError extends AppError {
   constructor(message: string, details: string[] = []) {
     super('rubric_invalid', message, { status: 500, details });

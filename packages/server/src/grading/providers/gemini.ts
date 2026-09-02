@@ -1,10 +1,18 @@
 import { GoogleGenAI } from '@google/genai';
 import {
+  ANSWER_CHUNK_SYSTEM_PROMPT,
+  QUESTION_PAPER_CHUNK_SYSTEM_PROMPT,
   RUBRIC_SYSTEM_PROMPT,
+  SCHEME_CHUNK_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
+  buildAnswerChunkPrompt,
+  buildQuestionPaperChunkPrompt,
   buildQuestionPrompt,
   buildRepairPrompt,
   buildRubricPrompt,
+  buildSchemeChunkPrompt,
+  type AnswerChunkInput,
+  type DocumentChunkInput,
   type GradeQuestionInput,
   type GradingModel,
   type ModelAttemptContext,
@@ -12,7 +20,13 @@ import {
   type ModelResponse,
   type RubricExtractionInput,
 } from '../model.js';
-import { QUESTION_GRADING_JSON_SCHEMA, RUBRIC_JSON_SCHEMA } from '../output-schema.js';
+import {
+  ANSWER_CHUNK_JSON_SCHEMA,
+  QUESTION_GRADING_JSON_SCHEMA,
+  QUESTION_PAPER_CHUNK_JSON_SCHEMA,
+  RUBRIC_JSON_SCHEMA,
+  SCHEME_CHUNK_JSON_SCHEMA,
+} from '../output-schema.js';
 import { AppError } from '../../errors.js';
 import { safeJsonParse } from './json.js';
 
@@ -67,6 +81,36 @@ export class GeminiGradingModel implements GradingModel {
       [{ text: buildRubricPrompt(input) }],
       RUBRIC_JSON_SCHEMA,
       'read this marking scheme',
+    );
+  }
+
+  /** Reads the questions in one excerpt of a question paper. */
+  async extractQuestionPaperChunk(input: DocumentChunkInput): Promise<ModelResponse> {
+    return this.call(
+      QUESTION_PAPER_CHUNK_SYSTEM_PROMPT,
+      [{ text: buildQuestionPaperChunkPrompt(input) }],
+      QUESTION_PAPER_CHUNK_JSON_SCHEMA,
+      'read this part of the question paper',
+    );
+  }
+
+  /** Reads the marking in one excerpt of a marking scheme. */
+  async extractSchemeChunk(input: DocumentChunkInput): Promise<ModelResponse> {
+    return this.call(
+      SCHEME_CHUNK_SYSTEM_PROMPT,
+      [{ text: buildSchemeChunkPrompt(input) }],
+      SCHEME_CHUNK_JSON_SCHEMA,
+      'read this part of the marking scheme',
+    );
+  }
+
+  /** Says which questions one excerpt of an answer sheet is answering. */
+  async attributeAnswerChunk(input: AnswerChunkInput): Promise<ModelResponse> {
+    return this.call(
+      ANSWER_CHUNK_SYSTEM_PROMPT,
+      [{ text: buildAnswerChunkPrompt(input) }],
+      ANSWER_CHUNK_JSON_SCHEMA,
+      'read this part of the answer sheet',
     );
   }
 

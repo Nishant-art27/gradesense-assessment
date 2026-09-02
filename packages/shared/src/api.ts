@@ -58,6 +58,8 @@ export const API_ERROR_CODES = [
   'model_output_invalid',
   'provider_unsupported',
   'rubric_invalid',
+  /** One request would exceed the provider's token ceiling even after splitting. */
+  'request_too_large',
   'internal_error',
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

@@ -1,4 +1,5 @@
 import type { PageText, Question } from '@gradesense/shared';
+import type { DocumentChunk } from '../ingest/chunk.js';
 
 /**
  * The seam between the grading pipeline and whatever is producing judgements.
@@ -54,6 +55,25 @@ export interface CriteriaInferenceInput {
   schema: Record<string, unknown>;
 }
 
+/** One piece of a question paper or marking scheme, read on its own. */
+export interface DocumentChunkInput {
+  chunk: DocumentChunk;
+  /** Filename, so the prompt can say which document the excerpt is from. */
+  documentName: string;
+  /**
+   * Questions already known from the question paper, so a marking-scheme
+   * excerpt is read against the right numbers and totals.
+   */
+  knownQuestions: Array<{ number: number; maxMarks: number | null }>;
+}
+
+/** One piece of a student's answer sheet, to be attributed to questions. */
+export interface AnswerChunkInput {
+  chunk: DocumentChunk;
+  /** The rubric's questions, so content can be matched when headings are missing. */
+  questions: Array<{ number: number; prompt: string }>;
+}
+
 export interface GradingModel {
   readonly providerName: string;
   readonly modelName: string;
@@ -70,6 +90,21 @@ export interface GradingModel {
    * guessing.
    */
   inferCriteria?(input: CriteriaInferenceInput): Promise<ModelResponse>;
+  /**
+   * Reads the questions out of one excerpt of a question paper. With
+   * `extractSchemeChunk`, this is how a paper too large for one request is read
+   * in full: piece by piece, joined afterwards by question number. Optional, but
+   * every provider with a model behind it should offer both.
+   */
+  extractQuestionPaperChunk?(input: DocumentChunkInput): Promise<ModelResponse>;
+  /** Reads the marking for each question out of one excerpt of a marking scheme. */
+  extractSchemeChunk?(input: DocumentChunkInput): Promise<ModelResponse>;
+  /**
+   * Says which questions a piece of an answer sheet is answering. Used only when
+   * the sheet has no headings to split on, in place of handing the whole sheet
+   * to every question.
+   */
+  attributeAnswerChunk?(input: AnswerChunkInput): Promise<ModelResponse>;
 }
 
 /** System prompt for rubric extraction. Separate job, separate instructions. */
@@ -196,8 +231,26 @@ ${diagramNote}
 Return one judgement for every criterion id listed above, plus findings for the problems worth drawing on the page.`;
 }
 
-/** Appended when re-asking after a schema failure, in place of a fresh prompt. */
-export function buildRepairPrompt(rawResponse: string, validationErrors: string[]): string {
+/** How much of the previous response a repair prompt quotes back by default. */
+export const REPAIR_EXCERPT_CHARS = 4000;
+
+/**
+ * Appended when re-asking after a schema failure, in place of a fresh prompt.
+ *
+ * `maxExcerptChars` lets a provider with a tight token budget quote less of the
+ * bad response back, so the repair attempt itself does not become the request
+ * that is too large.
+ */
+export function buildRepairPrompt(
+  rawResponse: string,
+  validationErrors: string[],
+  maxExcerptChars: number = REPAIR_EXCERPT_CHARS,
+): string {
+  const excerpt =
+    rawResponse.length > maxExcerptChars
+      ? `${rawResponse.slice(0, Math.max(0, maxExcerptChars))}\n[… ${rawResponse.length - maxExcerptChars} more characters not shown]`
+      : rawResponse;
+
   return `Your previous response did not match the required schema and could not be used.
 
 Validation errors:
@@ -205,8 +258,126 @@ ${validationErrors.map((error) => `  - ${error}`).join('\n')}
 
 Your previous response was:
 """
-${rawResponse.slice(0, 4000)}
+${excerpt}
 """
 
 Send the same marking judgement again, corrected so it satisfies the schema exactly. Do not change your marks unless a validation error requires it. Return only the structured object.`;
+}
+
+/* ------------------------ reading a document in pieces ------------------------ */
+/*
+ * A question paper or marking scheme that does not fit one request is read as a
+ * sequence of excerpts, each with its own prompt below. The excerpts are joined
+ * afterwards by question number (`rubric/merge.ts`), so every prompt leans on the
+ * same two things: use the number as printed, and say when an entry is cut by
+ * the excerpt boundary.
+ */
+
+export const QUESTION_PAPER_CHUNK_SYSTEM_PROMPT = `You are reading ONE EXCERPT of an examination question paper and transcribing the questions in it into a structured list. Other excerpts are read separately and the results are joined by question number, so getting the numbering and the boundaries right matters more than anything else.
+
+Rules:
+- Transcribe each question exactly as printed: every sub-part ((a), (b), (i), (ii)…) and every OR alternative, in full. Never summarise or paraphrase a question.
+- Use the question number as printed. Never renumber, and never invent a question that is not in the excerpt.
+- Record the marks printed against the question. If the excerpt does not state them, use null — do not guess.
+- If the excerpt begins in the middle of a question, transcribe the part you can see and set continuesFromPreviousChunk to true. If a question is cut off at the end of the excerpt, transcribe what is there and set continuesIntoNextChunk to true.
+- Ignore general instructions, the cover page, lists of physical constants, page headers and footers.
+- If the paper is printed in two languages, transcribe the English text only.
+- Set requiresDiagram to true only when the question itself asks for a diagram, ray diagram, graph, circuit or labelled figure.`;
+
+export const SCHEME_CHUNK_SYSTEM_PROMPT = `You are reading ONE EXCERPT of an examination marking scheme and converting the marking for each question into a structured form. Other excerpts are read separately and the results are joined by question number.
+
+Rules:
+- Use the question number as printed in the scheme. Never renumber.
+- "criteria" are the scheme's value points: one entry per point, each with exactly the marks the scheme places against it. Write ½ as 0.5 and 1½ as 1.5. Keep the scheme's order and wording. Do not merge two points into one, and do not reword a point into something more general.
+- When the scheme gives a summary box of marks AND the detailed steps, use the detailed steps as the criteria and copy the summary box into modelAnswer.
+- "modelAnswer" is the worked answer, copied as written — equations, values, conclusions. Not a summary.
+- "guidance" holds the examiner's instructions verbatim, one per entry: "Award full marks for any other correct method", "Any two reasons", "Alternatively: …". These change how the paper is marked and must not be dropped.
+- OR alternatives: a question offering a choice has two complete marking schemes. Put the FIRST alternative's value points in "criteria". Put the second alternative into "guidance" as one entry that begins "OR alternative — if the student attempted the alternative question, mark against these points instead:" followed by its value points and their marks, and copy its worked answer into modelAnswer after a line reading "OR". Never add the two alternatives' marks together.
+- "maxMarks" is the question's total as the scheme states it, or null if this excerpt does not say.
+- If the excerpt begins in the middle of a question, record the part you can see and set continuesFromPreviousChunk to true. If a question is cut off at the end, set continuesIntoNextChunk to true.
+- Never invent a value point or a mark the scheme does not contain.`;
+
+export const ANSWER_CHUNK_SYSTEM_PROMPT = `You are reading ONE EXCERPT of a student's answer sheet, as text extracted from the scanned pages. Your only job is to say which questions the student is answering in it. You are not marking anything.
+
+Rules:
+- Use the student's own headings where there are any ("Ans 31", "Q.31", "31.", "Answer to question 3"). Where there is no heading, match the content against the list of questions you are given.
+- Report every question that has any part of its answer in this excerpt.
+- Set beginsInThisChunk to true only when the opening of the answer is in this excerpt. Then copy the first six to ten words of that answer exactly as they appear here into firstWords, so the exact starting point can be found. Otherwise firstWords is null.
+- Never report a question that is not being answered in the excerpt, and never report a number that is not in the list of questions.`;
+
+function describeChunk(chunk: DocumentChunk, documentName: string): string {
+  const pages =
+    chunk.startPage === chunk.endPage
+      ? `page ${chunk.startPage + 1}`
+      : `pages ${chunk.startPage + 1}–${chunk.endPage + 1}`;
+  const lines = [`Excerpt ${chunk.index + 1} of ${chunk.total} from "${documentName}", ${pages}.`];
+  if (chunk.section) lines.push(`Section heading in force: ${chunk.section}`);
+  if (chunk.questionNumbers.length > 0) {
+    lines.push(`Question headings detected in this excerpt: ${chunk.questionNumbers.join(', ')}`);
+  }
+  if (chunk.part) {
+    lines.push(
+      `This excerpt is part ${chunk.part.index + 1} of ${chunk.part.count} of a single question that was too long to send whole.`,
+    );
+  }
+  return lines.join('\n');
+}
+
+function describeKnownQuestions(known: DocumentChunkInput['knownQuestions']): string {
+  if (known.length === 0) return '';
+  const list = known
+    .map((entry) => (entry.maxMarks === null ? `${entry.number}` : `${entry.number} (${entry.maxMarks} marks)`))
+    .join(', ');
+  return `\nThe question paper contains these questions: ${list}. Use these numbers.\n`;
+}
+
+export function buildQuestionPaperChunkPrompt(input: DocumentChunkInput): string {
+  return `${describeChunk(input.chunk, input.documentName)}
+
+Transcribe every question, or part of a question, whose text appears in this excerpt.
+
+EXCERPT
+"""
+${input.chunk.text}
+"""
+
+Return one entry per question number present. Return an empty list if the excerpt contains no question text.`;
+}
+
+export function buildSchemeChunkPrompt(input: DocumentChunkInput): string {
+  return `${describeChunk(input.chunk, input.documentName)}
+${describeKnownQuestions(input.knownQuestions)}
+Convert the marking for every question, or part of a question, that appears in this excerpt.
+
+EXCERPT
+"""
+${input.chunk.text}
+"""
+
+Return one entry per question number present. Return an empty list if the excerpt contains no marking.`;
+}
+
+/** Enough of each question for content to be matched when the sheet has no headings. */
+const QUESTION_PREVIEW_CHARS = 160;
+
+export function buildAnswerChunkPrompt(input: AnswerChunkInput): string {
+  const questions = input.questions
+    .map((question) => {
+      const preview = question.prompt.replace(/\s+/g, ' ').trim();
+      const shown = preview.length > QUESTION_PREVIEW_CHARS ? `${preview.slice(0, QUESTION_PREVIEW_CHARS)}…` : preview;
+      return `  - Question ${question.number}: ${shown || '(text not available)'}`;
+    })
+    .join('\n');
+
+  return `${describeChunk(input.chunk, 'the student answer sheet')}
+
+THE QUESTIONS ON THIS PAPER
+${questions}
+
+EXCERPT OF THE STUDENT'S ANSWER SHEET
+"""
+${input.chunk.text}
+"""
+
+Which of the questions is the student answering in this excerpt, and where does each answer begin?`;
 }

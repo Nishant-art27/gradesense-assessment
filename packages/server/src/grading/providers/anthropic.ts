@@ -1,10 +1,18 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {
+  ANSWER_CHUNK_SYSTEM_PROMPT,
+  QUESTION_PAPER_CHUNK_SYSTEM_PROMPT,
   RUBRIC_SYSTEM_PROMPT,
+  SCHEME_CHUNK_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
+  buildAnswerChunkPrompt,
+  buildQuestionPaperChunkPrompt,
   buildQuestionPrompt,
   buildRepairPrompt,
   buildRubricPrompt,
+  buildSchemeChunkPrompt,
+  type AnswerChunkInput,
+  type DocumentChunkInput,
   type GradeQuestionInput,
   type GradingModel,
   type ModelAttemptContext,
@@ -12,7 +20,13 @@ import {
   type ModelResponse,
   type RubricExtractionInput,
 } from '../model.js';
-import { QUESTION_GRADING_JSON_SCHEMA, RUBRIC_JSON_SCHEMA } from '../output-schema.js';
+import {
+  ANSWER_CHUNK_JSON_SCHEMA,
+  QUESTION_GRADING_JSON_SCHEMA,
+  QUESTION_PAPER_CHUNK_JSON_SCHEMA,
+  RUBRIC_JSON_SCHEMA,
+  SCHEME_CHUNK_JSON_SCHEMA,
+} from '../output-schema.js';
 import { AppError } from '../../errors.js';
 import { safeJsonParse } from './json.js';
 
@@ -132,6 +146,73 @@ export class AnthropicGradingModel implements GradingModel {
       .map((block) => block.text)
       .join('')
       .trim();
+
+    return { data: safeJsonParse(raw), raw };
+  }
+
+  /** Reads the questions in one excerpt of a question paper. */
+  async extractQuestionPaperChunk(input: DocumentChunkInput): Promise<ModelResponse> {
+    return this.structured(
+      QUESTION_PAPER_CHUNK_SYSTEM_PROMPT,
+      buildQuestionPaperChunkPrompt(input),
+      QUESTION_PAPER_CHUNK_JSON_SCHEMA,
+      'read this part of the question paper',
+    );
+  }
+
+  /** Reads the marking in one excerpt of a marking scheme. */
+  async extractSchemeChunk(input: DocumentChunkInput): Promise<ModelResponse> {
+    return this.structured(
+      SCHEME_CHUNK_SYSTEM_PROMPT,
+      buildSchemeChunkPrompt(input),
+      SCHEME_CHUNK_JSON_SCHEMA,
+      'read this part of the marking scheme',
+    );
+  }
+
+  /** Says which questions one excerpt of an answer sheet is answering. */
+  async attributeAnswerChunk(input: AnswerChunkInput): Promise<ModelResponse> {
+    return this.structured(
+      ANSWER_CHUNK_SYSTEM_PROMPT,
+      buildAnswerChunkPrompt(input),
+      ANSWER_CHUNK_JSON_SCHEMA,
+      'read this part of the answer sheet',
+    );
+  }
+
+  /** One text-only, schema-constrained request. Shared by the chunk-level readers. */
+  private async structured(
+    systemPrompt: string,
+    prompt: string,
+    schema: Record<string, unknown>,
+    what: string,
+  ): Promise<ModelResponse> {
+    const response = await this.client.messages.create({
+      model: this.modelName,
+      max_tokens: 8_000,
+      system: [{ type: 'text', text: systemPrompt }],
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'high', format: { type: 'json_schema', schema } },
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    if (response.stop_reason === 'refusal') {
+      throw new AppError('model_output_invalid', `The model declined to ${what}.`, {
+        status: 502,
+        retryable: false,
+        details: [response.stop_details?.explanation ?? 'No explanation given.'],
+      });
+    }
+
+    const raw = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+      .trim();
+
+    if (response.stop_reason === 'max_tokens') {
+      return { data: null, raw: `${raw}\n\n[response truncated: hit max_tokens]` };
+    }
 
     return { data: safeJsonParse(raw), raw };
   }

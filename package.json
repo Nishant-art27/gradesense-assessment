@@ -11,6 +11,7 @@
   ],
   "scripts": {
     "seed": "tsx scripts/generate-answers.ts",
+    "seed:recording": "tsx scripts/generate-recording-sample.ts",
     "dev": "concurrently -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run dev --workspace @gradesense/server",
     "dev:web": "npm run dev --workspace @gradesense/web",

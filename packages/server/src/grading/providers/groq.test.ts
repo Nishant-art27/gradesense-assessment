@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { CRITERIA_JSON_SCHEMA } from '../../rubric/infer-criteria.js';
 import { buildQuestionPrompt } from '../model.js';
-import { QUESTION_GRADING_JSON_SCHEMA, RUBRIC_JSON_SCHEMA } from '../output-schema.js';
+import {
+  ANSWER_CHUNK_JSON_SCHEMA,
+  QUESTION_GRADING_JSON_SCHEMA,
+  QUESTION_PAPER_CHUNK_JSON_SCHEMA,
+  RUBRIC_JSON_SCHEMA,
+  SCHEME_CHUNK_JSON_SCHEMA,
+} from '../output-schema.js';
 import { GroqGradingModel } from './groq.js';
 
 /**
@@ -47,6 +53,9 @@ const SCHEMAS = [
   ['question grading', QUESTION_GRADING_JSON_SCHEMA],
   ['rubric extraction', RUBRIC_JSON_SCHEMA],
   ['criteria inference', CRITERIA_JSON_SCHEMA],
+  ['question paper chunk', QUESTION_PAPER_CHUNK_JSON_SCHEMA],
+  ['marking scheme chunk', SCHEME_CHUNK_JSON_SCHEMA],
+  ['answer sheet chunk', ANSWER_CHUNK_JSON_SCHEMA],
 ] as const;
 
 describe('the schemas Groq is sent, under strict mode', () => {

@@ -154,3 +154,152 @@ export const RUBRIC_JSON_SCHEMA: Record<string, unknown> = {
     },
   },
 };
+
+/* ------------------------- chunk-level extraction ------------------------- */
+/*
+ * The schemas below read one *piece* of a document at a time, so a paper that
+ * would not fit in a single request can still be read in full. Each entry says
+ * whether it began before this piece or runs past its end, which is what lets
+ * the merge step in `rubric/merge.ts` stitch a question that straddles a chunk
+ * boundary back together by its number rather than by guessing.
+ *
+ * Same strict-mode discipline as above: every property required, no extras.
+ */
+
+const CONTINUATION_FLAGS = {
+  continuesFromPreviousChunk: {
+    type: 'boolean',
+    description: 'True when this entry began before this excerpt, so the text here is only its later part.',
+  },
+  continuesIntoNextChunk: {
+    type: 'boolean',
+    description: 'True when this entry is cut off by the end of the excerpt and carries on afterwards.',
+  },
+} as const;
+
+/** One excerpt of a question paper: the questions set, with their marks. */
+export const QUESTION_PAPER_CHUNK_JSON_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['questions'],
+  properties: {
+    questions: {
+      type: 'array',
+      description: 'Every question, or part of one, whose text appears in this excerpt. Empty if none does.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['number', 'subject', 'prompt', 'maxMarks', 'requiresDiagram', ...Object.keys(CONTINUATION_FLAGS)],
+        properties: {
+          number: { type: 'integer', description: 'Question number as printed.' },
+          subject: { type: 'string', description: 'Subject or topic, e.g. "Physics". Empty string if not stated.' },
+          prompt: {
+            type: 'string',
+            description:
+              'The question as set, copied as written, including every sub-part and any OR alternative. Not a summary.',
+          },
+          maxMarks: {
+            type: ['number', 'null'],
+            description: 'Marks printed against the question. Null when the excerpt does not say.',
+          },
+          requiresDiagram: {
+            type: 'boolean',
+            description: 'True when the question asks for a diagram, ray diagram, graph, circuit or labelled figure.',
+          },
+          ...CONTINUATION_FLAGS,
+        },
+      },
+    },
+  },
+};
+
+/** One excerpt of a marking scheme: value points and marks, per question. */
+export const SCHEME_CHUNK_JSON_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['questions'],
+  properties: {
+    questions: {
+      type: 'array',
+      description: 'Every question, or part of one, whose marking appears in this excerpt. Empty if none does.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'number',
+          'maxMarks',
+          'modelAnswer',
+          'guidance',
+          'requiresDiagram',
+          'criteria',
+          ...Object.keys(CONTINUATION_FLAGS),
+        ],
+        properties: {
+          number: { type: 'integer', description: 'Question number as printed.' },
+          maxMarks: {
+            type: ['number', 'null'],
+            description: 'Total marks the scheme gives the question. Null when this excerpt does not state it.',
+          },
+          modelAnswer: {
+            type: 'string',
+            description: 'The worked answer or value points as the scheme writes them, copied not summarised.',
+          },
+          guidance: {
+            type: 'array',
+            description:
+              'Examiner instructions, one per entry, verbatim — "award full marks for any other correct method", "any two reasons".',
+            items: { type: 'string' },
+          },
+          requiresDiagram: {
+            type: 'boolean',
+            description: 'True when marks are awarded for a diagram, graph or figure.',
+          },
+          criteria: {
+            type: 'array',
+            description: 'The markable points in the order the scheme lists them, each with the marks it carries.',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['description', 'maxMarks'],
+              properties: {
+                description: { type: 'string', description: 'The point, as the scheme words it.' },
+                maxMarks: { type: 'number', description: 'Marks for this point, e.g. 0.5, 1, 2.' },
+              },
+            },
+          },
+          ...CONTINUATION_FLAGS,
+        },
+      },
+    },
+  },
+};
+
+/** One excerpt of a student's answer sheet: which questions it answers. */
+export const ANSWER_CHUNK_JSON_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['answers'],
+  properties: {
+    answers: {
+      type: 'array',
+      description: 'One entry for each question the student is answering somewhere in this excerpt.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['questionNumber', 'beginsInThisChunk', 'firstWords'],
+        properties: {
+          questionNumber: { type: 'integer', description: 'The question being answered.' },
+          beginsInThisChunk: {
+            type: 'boolean',
+            description: 'True when the answer to this question starts inside this excerpt rather than before it.',
+          },
+          firstWords: {
+            type: ['string', 'null'],
+            description:
+              'When it begins here: the first six to ten words of the answer, copied exactly from the excerpt. Otherwise null.',
+          },
+        },
+      },
+    },
+  },
+};
