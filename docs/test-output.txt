@@ -1,18 +1,13 @@
 GradeSense — test output
-Generated: 2026-09-01 12:42 UTC
+Generated: 2026-09-02 00:54 UTC
 Node v24.15.0, provider: mock (no API key required)
 
 Command: npm test
-================================================================
-
-
-> gradesense@1.0.0 test
-> vitest run
 
 
  RUN  v3.2.7 /Users/nishant/Documents/GradeSense_Assignment
 
- ✓ packages/server/src/grading/text-match.test.ts > OCR folding > collapses the confusions it covers to identical strings 1ms
+ ✓ packages/server/src/grading/text-match.test.ts > OCR folding > collapses the confusions it covers to identical strings 0ms
  ✓ packages/server/src/grading/text-match.test.ts > OCR folding > leaves confusions outside its table to edit distance 0ms
  ✓ packages/server/src/grading/text-match.test.ts > OCR folding > does not collapse words that merely look similar 0ms
  ✓ packages/server/src/grading/text-match.test.ts > token similarity > rates OCR-damaged words as near-identical 0ms
@@ -38,79 +33,167 @@ Command: npm test
  ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > rejects %s outright 0ms
  ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > rejects {} outright 0ms
  ✓ packages/server/src/grading/schema-parity.test.ts > parsing model output > rejects an unknown criterion status 0ms
+ ✓ packages/server/src/grading/providers/gemini.test.ts > converting our schemas for Gemini > leaves no union types in the question grading schema 1ms
+ ✓ packages/server/src/grading/providers/gemini.test.ts > converting our schemas for Gemini > leaves no union types in the rubric extraction schema 0ms
+ ✓ packages/server/src/grading/providers/gemini.test.ts > converting our schemas for Gemini > drops additionalProperties from the question grading schema 1ms
+ ✓ packages/server/src/grading/providers/gemini.test.ts > converting our schemas for Gemini > drops additionalProperties from the rubric extraction schema 0ms
+ ✓ packages/server/src/grading/providers/gemini.test.ts > converting our schemas for Gemini > turns a nullable union into type + nullable 0ms
+ ✓ packages/server/src/grading/providers/gemini.test.ts > converting our schemas for Gemini > keeps required, enums and descriptions intact 1ms
+ ✓ packages/server/src/grading/providers/gemini.test.ts > converting our schemas for Gemini > is a pure transform — the source schema is not mutated 0ms
+ ✓ packages/server/src/rubric/infer-criteria.test.ts > inferring criteria for a question with no rubric > uses the model and labels the result as inferred 2ms
+ ✓ packages/server/src/rubric/infer-criteria.test.ts > inferring criteria for a question with no rubric > forces inferred marks to sum to the instructor's stated total 0ms
+ ✓ packages/server/src/rubric/infer-criteria.test.ts > inferring criteria for a question with no rubric > falls back to one placeholder point when the provider cannot infer 0ms
+ ✓ packages/server/src/rubric/infer-criteria.test.ts > inferring criteria for a question with no rubric > falls back rather than failing when the provider throws 0ms
+ ✓ packages/server/src/rubric/infer-criteria.test.ts > inferring criteria for a question with no rubric > falls back when the provider returns nothing usable 0ms
+ ✓ packages/server/src/rubric/infer-criteria.test.ts > a scheme that rubrics some questions and not others > keeps both questions, marking only the unrubricked one as inferred 2ms
+ ✓ packages/server/src/rubric/infer-criteria.test.ts > a scheme that rubrics some questions and not others > produces a rubric that is valid and adds up 0ms
+ ✓ packages/server/src/rubric/infer-criteria.test.ts > a scheme that rubrics some questions and not others > warns about the inferred question by name 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > retries HTTP 429 1ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > retries HTTP 500 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > retries HTTP 502 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > retries HTTP 503 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > retries HTTP 504 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > retries HTTP 408 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > does not retry HTTP 400 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > does not retry HTTP 401 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > does not retry HTTP 403 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > does not retry HTTP 404 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > does not retry HTTP 422 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > reads a status nested on a response, as some transports report it 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > retries quota and availability messages that carry no status 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > honours the decision already recorded on our own errors 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > retries a Groq rate limit, which is exactly what its free tier produces 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > does not retry a Groq authentication failure 0ms
+ ✓ packages/server/src/grading/provider-factory.test.ts > deciding whether a provider failure is worth retrying > does not retry a non-error value 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > the schemas Groq is sent, under strict mode > lists every property of every object as required in question grading 1ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > the schemas Groq is sent, under strict mode > lists every property of every object as required in rubric extraction 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > the schemas Groq is sent, under strict mode > lists every property of every object as required in criteria inference 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > the schemas Groq is sent, under strict mode > sets additionalProperties false on every object in question grading 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > the schemas Groq is sent, under strict mode > sets additionalProperties false on every object in rubric extraction 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > the schemas Groq is sent, under strict mode > sets additionalProperties false on every object in criteria inference 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > the schemas Groq is sent, under strict mode > finds the object nodes it claims to check 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > what the grader tells the model it can see > never claims a PDF is attached when none was sent 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > what the grader tells the model it can see > still says the sheet is attached when it really is 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > what the grader tells the model it can see > tells a text-only model to lower its confidence rather than guess 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > what the grader tells the model it can see > says the layout is invisible even when no diagram is marked 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > the Groq provider > reports itself as groq, and uses the model it was given 0ms
+ ✓ packages/server/src/grading/providers/groq.test.ts > the Groq provider > can read a scheme and infer criteria, like the other live providers 0ms
  ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > places a verbatim quote exactly 1ms
  ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > produces one box per line for a quote that wraps 0ms
  ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > boxes a phrase inside a line rather than the whole line 0ms
  ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > finds a quote on the second page 1ms
  ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > still anchors a quote through OCR damage 1ms
- ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > reports unresolved rather than guessing at a quote that is absent 4ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > reports unresolved rather than guessing at a quote that is absent 2ms
  ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > refuses a quote too short to place unambiguously 0ms
- ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > prefers the hinted page but does not insist on it 0ms
- ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > accepts a sensible region and marks it approximate 0ms
- ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > clamps a region that runs off the page 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a quote to the page > prefers the hinted page but does not insist on it 1ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > snaps an approximate box onto the whole drawing it points at 1ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > turns a sliver beside one axis number into the whole graph 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > recovers a box that missed the drawing but sits just below it 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > refuses to draw a box that points at no drawing at all 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > keeps a region on the page the drawing is actually on 0ms
  ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > clamps a page index beyond the document 0ms
  ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > rejects a missing region 0ms
- ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > survives nonsense coordinates 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > survives nonsense coordinates without drawing anything 0ms
+ ✓ packages/server/src/grading/anchor.test.ts > anchoring a diagram region > finds nothing to snap to on a page with no drawing 12ms
  ✓ packages/server/src/grading/anchor.test.ts > margin notes > sit inside the page and do not overlap each other 0ms
- ✓ packages/server/src/grading/anchor.test.ts > margin notes > stay on the page however many are needed 1ms
- ✓ packages/server/src/grading/pipeline.test.ts > a fully correct answer > is awarded full marks with no invented deductions 178ms
- ✓ packages/server/src/grading/pipeline.test.ts > a fully correct answer > is confident and needs no human review 9ms
- ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > lands on the score the error key predicts 19ms
- ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > penalises exactly the planted mistakes and credits the rest 8ms
+ ✓ packages/server/src/grading/anchor.test.ts > margin notes > stay on the page however many are needed 2ms
+ ✓ packages/server/src/grading/diagram.test.ts > finding the drawings on a page > finds one drawing per page of the sample answer, and names it 2ms
+ ✓ packages/server/src/grading/diagram.test.ts > finding the drawings on a page > frames the whole circuit, including the meters at its edges 0ms
+ ✓ packages/server/src/grading/diagram.test.ts > finding the drawings on a page > stops before the answer that follows it 0ms
+ ✓ packages/server/src/grading/diagram.test.ts > finding the drawings on a page > reaches the axis drawn to the left of every label on it 0ms
+ ✓ packages/server/src/grading/diagram.test.ts > finding the drawings on a page > keeps a label that sits on the left margin inside the drawing 0ms
+ ✓ packages/server/src/grading/diagram.test.ts > finding the drawings on a page > finds a drawing on a page that holds nothing else 0ms
+ ✓ packages/server/src/grading/diagram.test.ts > finding the drawings on a page > reports no drawing on a blank answer sheet 0ms
+ ✓ packages/server/src/grading/diagram.test.ts > finding the drawings on a page > never reports a box that leaves the page 1ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > reading the question paper > finds every question with its prompt 1ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > reading the question paper > leaves out the candidate instructions that follow each question 0ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > reading the marking scheme > finds every question and its criteria 1ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > reading the marking scheme > reads a criterion whose text wrapped before its mark 0ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > reading the marking scheme > does not mistake a figure inside a criterion for its mark 0ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > reading the marking scheme > captures the grading guidance, which changes how the paper is marked 0ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > building a rubric from both documents > produces the same rubric as the hand-written fixture 1ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > building a rubric from both documents > works out which questions award marks for a diagram 0ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > building a rubric from both documents > takes the prompt from the question paper, not the scheme 0ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > building a rubric from both documents > still produces a rubric when no question paper is supplied 0ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > building a rubric from both documents > marks every question as instructor-defined when the scheme supplies criteria 0ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > building a rubric from both documents > keeps a question whose scheme defines no criteria, rather than dropping it 0ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > building a rubric from both documents > reports a scheme it cannot read instead of inventing one 0ms
+ ✓ packages/server/src/rubric/parse-scheme.test.ts > building a rubric from both documents > flags a stated total that disagrees with its criteria, and trusts the criteria 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a fully correct answer > is awarded full marks with no invented deductions 234ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a fully correct answer > is confident and needs no human review 15ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > lands on the score the error key predicts 22ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > penalises exactly the planted mistakes and credits the rest 11ms
  ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > grades the essay on reasoning rather than agreement with the model answer 8ms
  ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > anchors its annotations to real positions on the page 9ms
  ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > reports the diagram fault as a region, since there is no text to quote 8ms
  ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > sizes the diagram region to the diagram, not into the next answer 8ms
  ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > puts the graph region on the page the graph is actually on 8ms
- ✓ packages/server/src/api.test.ts > uploading documents > ingests a PDF and reports its pages and hash 175ms
- ✓ packages/server/src/api.test.ts > uploading documents > rejects a file that is not a PDF 2ms
- ✓ packages/server/src/api.test.ts > uploading documents > rejects an unknown document kind 1ms
- ✓ packages/server/src/api.test.ts > uploading documents > serves the stored original back for the viewer 10ms
- ✓ packages/server/src/api.test.ts > grading over HTTP > returns the result with its annotations and saves it to history 32ms
- ✓ packages/server/src/api.test.ts > grading over HTTP > can reopen a saved result later 24ms
- ✓ packages/server/src/api.test.ts > grading over HTTP > 404s for a result that does not exist 1ms
- ✓ packages/server/src/api.test.ts > grading over HTTP > rejects grading a document that is not a student answer 8ms
  ✓ packages/server/src/grading/pipeline.test.ts > a partially correct answer > flags the weakest question for review even though the paper average looks fine 8ms
- ✓ packages/server/src/grading/pipeline.test.ts > an incorrect answer > scores near zero 9ms
- ✓ packages/server/src/grading/pipeline.test.ts > an incorrect answer > backs every deduction with a quote that is actually in the answer 3ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an incorrect answer > scores near zero 10ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an incorrect answer > backs every deduction with a quote that is actually in the answer 4ms
  ✓ packages/server/src/grading/pipeline.test.ts > a blank answer > scores zero without ever calling the grading model 3ms
  ✓ packages/server/src/grading/pipeline.test.ts > a blank answer > is flagged for a human rather than treated as a settled zero 0ms
- ✓ packages/server/src/grading/pipeline.test.ts > an answer with OCR-like spelling errors > still credits correct content despite the character damage 17ms
- ✓ packages/server/src/grading/pipeline.test.ts > an answer with OCR-like spelling errors > reports the misspellings separately instead of deducting for them 10ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an answer with OCR-like spelling errors > still credits correct content despite the character damage 15ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an answer with OCR-like spelling errors > reports the misspellings separately instead of deducting for them 9ms
  ✓ packages/server/src/grading/pipeline.test.ts > an answer with OCR-like spelling errors > anchors the damaged quotes by fuzzy match 9ms
- ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > is repaired by re-asking, and the repair is recorded 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > is repaired by re-asking, and the repair is recorded 9ms
  ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > degrades to "ungraded" rather than inventing marks when it never recovers 0ms
  ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > survives not-json output without throwing 0ms
  ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > survives truncated output without throwing 0ms
  ✓ packages/server/src/grading/pipeline.test.ts > malformed model output > survives wrong-shape output without throwing 0ms
- ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > retries a server failure and then reports the outage instead of marks 1204ms
- ✓ packages/server/src/api.test.ts > grading over HTTP > reports a model outage as a retryable 503 and saves nothing 1213ms
- ✓ packages/server/src/api.test.ts > editing annotations without re-grading > moves an annotation and leaves every mark untouched 42ms
+ ✓ packages/server/src/api.test.ts > uploading documents > ingests a PDF and reports its pages and hash 202ms
+ ✓ packages/server/src/api.test.ts > uploading documents > rejects a file that is not a PDF 2ms
+ ✓ packages/server/src/api.test.ts > uploading documents > rejects an unknown document kind 1ms
+ ✓ packages/server/src/api.test.ts > uploading documents > serves the stored original back for the viewer 10ms
+ ✓ packages/server/src/api.test.ts > grading over HTTP > returns the result with its annotations and saves it to history 36ms
+ ✓ packages/server/src/api.test.ts > grading over HTTP > can reopen a saved result later 19ms
+ ✓ packages/server/src/api.test.ts > grading over HTTP > 404s for a result that does not exist 1ms
+ ✓ packages/server/src/api.test.ts > grading over HTTP > rejects grading a document that is not a student answer 7ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > retries a server failure and then reports the outage instead of marks 1205ms
+ ✓ packages/server/src/api.test.ts > grading over HTTP > reports a model outage as a retryable 503 and saves nothing 1210ms
+ ✓ packages/server/src/api.test.ts > editing annotations without re-grading > moves an annotation and leaves every mark untouched 32ms
  ✓ packages/server/src/api.test.ts > editing annotations without re-grading > rewrites a comment and correction in place 21ms
  ✓ packages/server/src/api.test.ts > editing annotations without re-grading > deletes an annotation 18ms
- ✓ packages/server/src/api.test.ts > editing annotations without re-grading > lets a teacher add their own annotation 16ms
- ✓ packages/server/src/api.test.ts > editing annotations without re-grading > rejects an empty update and an out-of-range rectangle 17ms
- ✓ packages/server/src/api.test.ts > editing annotations without re-grading > 404s when the annotation is not there 19ms
- ✓ packages/server/src/api.test.ts > exporting an annotated copy > returns a PDF and leaves the original file byte-identical 39ms
+ ✓ packages/server/src/api.test.ts > editing annotations without re-grading > lets a teacher add their own annotation 17ms
+ ✓ packages/server/src/api.test.ts > editing annotations without re-grading > rejects an empty update and an out-of-range rectangle 16ms
+ ✓ packages/server/src/api.test.ts > editing annotations without re-grading > 404s when the annotation is not there 15ms
+ ✓ packages/server/src/api.test.ts > exporting an annotated copy > returns a PDF and leaves the original file byte-identical 38ms
  ✓ packages/server/src/api.test.ts > exporting an annotated copy > reflects the teacher's edits rather than the original marking 34ms
+ ✓ packages/server/src/api.test.ts > setting up an exam from uploaded documents > reads a rubric out of an uploaded marking scheme 41ms
+ ✓ packages/server/src/api.test.ts > setting up an exam from uploaded documents > marks a paper against the uploaded rubric, not the built-in one 50ms
+ ✓ packages/server/src/api.test.ts > setting up an exam from uploaded documents > refuses a rubric whose marks do not add up 1ms
+ ✓ packages/server/src/api.test.ts > setting up an exam from uploaded documents > 404s when marking against a rubric that was never saved 6ms
+ ✓ packages/server/src/api.test.ts > setting up an exam from uploaded documents > requires a marking scheme to read a rubric from 1ms
  ✓ packages/server/src/api.test.ts > meta endpoints > reports which provider is in use 1ms
  ✓ packages/server/src/api.test.ts > meta endpoints > serves the rubric with consistent arithmetic 1ms
  ✓ packages/server/src/api.test.ts > meta endpoints > 404s on an unknown endpoint 1ms
  ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > retries a rate_limit failure and then reports the outage instead of marks 1203ms
  ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > retries a connection failure and then reports the outage instead of marks 1204ms
  ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > surfaces as a retryable 503 so the caller knows to try again 1205ms
- ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > recovers when a transient failure clears on retry 429ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > a provider that rejects the key > is not retried, because no number of attempts fixes a bad key 1ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > a provider that rejects the key > says the key was rejected, and where to fix it 1ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > a provider that rejects the key > never puts the raw JSON body from the provider in front of the user 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > a provider that rejects the key > still keeps enough of the reason to diagnose it 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > a provider that rejects the key > treats a 403 the same way 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model or API failure > recovers when a transient failure clears on retry 427ms
  ✓ packages/server/src/grading/pipeline.test.ts > a model that awards more marks than exist > clamps every criterion into range and recomputes the total 1ms
- ✓ packages/server/src/grading/pipeline.test.ts > a model that awards more marks than exist > records each correction in the audit trail 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model that awards more marks than exist > records each correction in the audit trail 1ms
  ✓ packages/server/src/grading/pipeline.test.ts > a model that awards more marks than exist > flags the paper for review, because silently corrected marks are not trustworthy 0ms
- ✓ packages/server/src/grading/pipeline.test.ts > a model that cites evidence which is not in the answer > marks the citation unverified rather than showing it as fact 22ms
- ✓ packages/server/src/grading/pipeline.test.ts > a model that cites evidence which is not in the answer > refuses to draw annotations from a quote that does not exist 15ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model that cites evidence which is not in the answer > marks the citation unverified rather than showing it as fact 33ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a model that cites evidence which is not in the answer > refuses to draw annotations from a quote that does not exist 14ms
  ✓ packages/server/src/grading/pipeline.test.ts > a model that cites evidence which is not in the answer > collapses confidence and demands review 14ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an exam the built-in grader was not written for > refuses to mark it rather than applying another paper's rules 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > an exam the built-in grader was not written for > says why, and what to do about it 0ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a paper mixing instructor and inferred criteria > grades every question, including the inferred one 8ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a paper mixing instructor and inferred criteria > leaves the instructor's questions marked exactly as before 6ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a paper mixing instructor and inferred criteria > records whose criteria produced each question, so the UI can say so 6ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a paper mixing instructor and inferred criteria > declines only the inferred question when the grader cannot mark it 6ms
+ ✓ packages/server/src/grading/pipeline.test.ts > a paper mixing instructor and inferred criteria > still satisfies every invariant 6ms
  ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for student-answer under the normal provider 8ms
  ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for fully-correct under the normal provider 6ms
  ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for incorrect under the normal provider 3ms
  ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for blank under the normal provider 0ms
- ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for ocr-errors under the normal provider 9ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for ocr-errors under the normal provider 8ms
  ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for student-answer under a model that overscores 0ms
  ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for fully-correct under a model that overscores 0ms
  ✓ packages/server/src/grading/pipeline.test.ts > result invariants > hold for incorrect under a model that overscores 0ms
@@ -119,10 +202,10 @@ Command: npm test
  ✓ packages/server/src/grading/pipeline.test.ts > result invariants > keep the total equal to the sum of the rubric points 8ms
  ✓ packages/server/src/grading/pipeline.test.ts > result invariants > account for every rubric criterion in the result 7ms
  ✓ packages/server/src/grading/pipeline.test.ts > result invariants > always report a confidence between 0 and 1 8ms
- ✓ packages/server/src/grading/pipeline.test.ts > result invariants > give a reason whenever review is demanded 26ms
+ ✓ packages/server/src/grading/pipeline.test.ts > result invariants > give a reason whenever review is demanded 25ms
 
- Test Files  5 passed (5)
-      Tests  108 passed (108)
-   Start at  18:12:20
-   Duration  6.00s (transform 192ms, setup 0ms, collect 583ms, tests 7.61s, environment 0ms, prepare 185ms)
+ Test Files  11 passed (11)
+      Tests  196 passed (196)
+   Start at  06:24:33
+   Duration  6.15s (transform 386ms, setup 0ms, collect 1.34s, tests 8.50s, environment 1ms, prepare 390ms)
 

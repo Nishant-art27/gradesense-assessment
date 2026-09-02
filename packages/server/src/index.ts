@@ -14,7 +14,14 @@ async function main(): Promise<void> {
 
   app.listen(config.port, () => {
     console.log(`\n  GradeSense API   http://localhost:${config.port}`);
-    console.log(`  Provider         ${config.provider}${config.provider === 'anthropic' ? ` (${config.model})` : ' (deterministic, no API key needed)'}`);
+    // The suffix used to be hardcoded to "deterministic, no API key needed" for
+    // anything that was not Anthropic, which told a Gemini user the opposite of
+    // the truth about where their marks were coming from.
+    const how =
+      config.provider === 'mock'
+        ? 'deterministic rules, no API key needed'
+        : `live model · ${config.model}`;
+    console.log(`  Provider         ${config.provider} (${how})`);
     console.log(`  Rubric           ${rubric.title} — ${rubric.totalMarks} marks, ${rubric.questions.length} questions`);
     console.log(`  Data             ${config.paths.data}\n`);
   });

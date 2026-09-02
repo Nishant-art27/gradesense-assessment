@@ -18,7 +18,8 @@
     "start": "npm run start --workspace @gradesense/server",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p packages/shared/tsconfig.json && tsc -p packages/server/tsconfig.json && tsc -p packages/web/tsconfig.json"
+    "typecheck": "tsc -p packages/shared/tsconfig.json && tsc -p packages/server/tsconfig.json && tsc -p packages/web/tsconfig.json",
+    "check:provider": "tsx scripts/check-provider.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

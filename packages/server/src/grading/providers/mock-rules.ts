@@ -20,6 +20,17 @@ export interface Signal {
 
 export interface MockRule {
   criterionId: string;
+  /**
+   * The criterion this rule was written for, verbatim.
+   *
+   * Rules used to be looked up by id alone, which was a real bug: every
+   * extracted rubric numbers its criteria q1c1, q1c2, … so a history paper's
+   * first criterion picked up the physics rule and a correct answer about the
+   * Treaty of Versailles came back marked "the answer never establishes that the
+   * circuit is a closed series path". Matching on the wording as well means a
+   * rule can only ever fire on the criterion it actually describes.
+   */
+  criterionDescription: string;
   /** A substantive error. Forces zero and an anchored annotation. */
   faults: Signal[];
   /** Evidence the criterion is met. */
@@ -65,6 +76,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q1c1: {
     criterionId: 'q1c1',
+    criterionDescription:
+      'Correctly represents the main circuit with battery, switch, bulb and resistor connected in a closed series path',
     faults: [
       {
         match: 'an electric circuit is an open path',
@@ -99,6 +112,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q1c2: {
     criterionId: 'q1c2',
+    criterionDescription:
+      'Correct placement of ammeter in series and voltmeter in parallel across the bulb',
     faults: [
       {
         match: 'The ammeter is connected in parallel across the bulb',
@@ -129,6 +144,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q1c3: {
     criterionId: 'q1c3',
+    criterionDescription:
+      'Correct explanation of current flow and the function of the main components',
     faults: [
       {
         match: 'The battery stores the current inside it',
@@ -157,6 +174,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q1c4: {
     criterionId: 'q1c4',
+    criterionDescription:
+      'Correctly explains the relationship between resistance and current, including the relevant principle/Ohm\'s law',
     faults: [
       {
         match: 'If we increase the resistance then the current also increases',
@@ -198,6 +217,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q1c5: {
     criterionId: 'q1c5',
+    criterionDescription:
+      'Clear, logically structured explanation with appropriate labels and current direction in the diagram',
     faults: [],
     awards: ['conventional current direction is marked with an arrow', 'conventional current direction'],
     partials: [],
@@ -220,6 +241,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q2c1: {
     criterionId: 'q2c1',
+    criterionDescription:
+      'Presents a clear position on whether/how technology affects learning',
     faults: [],
     awards: [
       'In my opinion technology has made students very dependent',
@@ -246,6 +269,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q2c2: {
     criterionId: 'q2c2',
+    criterionDescription:
+      'Provides relevant and logically developed arguments supporting the position',
     faults: [],
     awards: [
       'Earlier a student had to go to the library and search through many different books',
@@ -270,6 +295,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q2c3: {
     criterionId: 'q2c3',
+    criterionDescription:
+      'Recognises and meaningfully addresses an opposing viewpoint or limitation',
     faults: [],
     awards: [
       'However, easy access creates a real risk of dependence',
@@ -296,6 +323,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q2c4: {
     criterionId: 'q2c4',
+    criterionDescription:
+      'Uses relevant examples and demonstrates reasoning rather than merely making unsupported claims',
     faults: [
       {
         match: 'Everybody knows that students just copy from the internet and do not learn anything',
@@ -321,6 +350,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q2c5: {
     criterionId: 'q2c5',
+    criterionDescription:
+      'Provides a coherent conclusion that follows from the discussion, with clear overall communication',
     faults: [],
     awards: ['So in conclusion I believe that technology is making students dependent', 'I therefore conclude', 'In conclusion'],
     partials: [],
@@ -336,6 +367,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q3c1: {
     criterionId: 'q3c1',
+    criterionDescription:
+      'Correctly plots and labels the demand and supply curves, with appropriate axes and direction',
     faults: [
       {
         match: 'Both the demand curve and the supply curve slope upward',
@@ -369,6 +402,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q3c2: {
     criterionId: 'q3c2',
+    criterionDescription:
+      'Correctly identifies the equilibrium at ₹30 and 60 units and explains why it is equilibrium',
     faults: [
       {
         match: 'The equilibrium is at the price of Rs 50 and the quantity of 100 units',
@@ -394,6 +429,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q3c3: {
     criterionId: 'q3c3',
+    criterionDescription:
+      'Correctly explains shortage below equilibrium and surplus above equilibrium',
     faults: [
       {
         match: 'When the price is below the equilibrium price there is a surplus in the market',
@@ -420,6 +457,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q3c4: {
     criterionId: 'q3c4',
+    criterionDescription:
+      'Correctly explains that increased production costs shift the supply curve left/upward',
     faults: [
       {
         match: 'the supply curve shifts to the right',
@@ -440,6 +479,8 @@ export const MOCK_RULES: Record<string, MockRule> = {
 
   q3c5: {
     criterionId: 'q3c5',
+    criterionDescription:
+      'Correctly explains the resulting tendency toward a higher equilibrium price and lower equilibrium quantity, with the change represented appropriately on the graph',
     faults: [
       {
         match: 'the equilibrium price becomes lower than it was before',

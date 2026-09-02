@@ -10,6 +10,13 @@ import type {
   UpdateAnnotationRequest,
 } from '@gradesense/shared';
 
+export interface RubricDraft {
+  rubric: Rubric;
+  /** 'parsed' when read structurally, 'model' when the language model read it. */
+  source: 'parsed' | 'model';
+  warnings: string[];
+}
+
 /**
  * Typed API client.
  *
@@ -102,7 +109,27 @@ export const api = {
       modelAnswer: DocumentSummary | null;
     }>('/api/samples', { method: 'POST', body: JSON.stringify({ answer }) }),
 
-  grade: (studentAnswerDocumentId: string, extra?: { questionPaperDocumentId?: string | null; modelAnswerDocumentId?: string | null }) =>
+  /** Reads a draft rubric out of an uploaded marking scheme. Nothing is saved yet. */
+  extractRubric: (modelAnswerDocumentId: string, questionPaperDocumentId?: string | null) =>
+    json<RubricDraft>('/api/rubrics/extract', {
+      method: 'POST',
+      body: JSON.stringify({ modelAnswerDocumentId, questionPaperDocumentId }),
+    }),
+
+  /** Saves a rubric a human has reviewed. Only a saved rubric can mark a paper. */
+  saveRubric: (rubric: Rubric) =>
+    json<Rubric>('/api/rubrics', { method: 'POST', body: JSON.stringify({ rubric }) }),
+
+  listRubrics: () => json<Rubric[]>('/api/rubrics'),
+
+  grade: (
+    studentAnswerDocumentId: string,
+    extra?: {
+      rubricId?: string | null;
+      questionPaperDocumentId?: string | null;
+      modelAnswerDocumentId?: string | null;
+    },
+  ) =>
     json<GradedPaper>('/api/grade', {
       method: 'POST',
       body: JSON.stringify({ studentAnswerDocumentId, ...extra }),

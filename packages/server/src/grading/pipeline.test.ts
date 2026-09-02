@@ -14,6 +14,7 @@ import { MockGradingModel } from './providers/mock.js';
 import {
   FabricatedEvidenceGradingModel,
   FailingGradingModel,
+  UnauthorisedGradingModel,
   FlakyGradingModel,
   MalformedGradingModel,
   OverscoringGradingModel,
@@ -390,6 +391,54 @@ describe('a model or API failure', () => {
     });
   });
 
+  /*
+   * A rejected key reached the browser as Google's raw error body — a teacher
+   * marking a paper was shown a wall of JSON about OAuth 2 access tokens and
+   * `ACCESS_TOKEN_TYPE_UNSUPPORTED`. The failure was real; the way it was
+   * reported told them nothing they could act on.
+   */
+  describe('a provider that rejects the key', () => {
+    it('is not retried, because no number of attempts fixes a bad key', async () => {
+      const model = new UnauthorisedGradingModel();
+
+      await expect(grade('student-answer', model)).rejects.toMatchObject({
+        code: 'model_auth_failed',
+        retryable: false,
+      });
+      expect(model.attempts).toBe(1);
+    });
+
+    it('says the key was rejected, and where to fix it', async () => {
+      await expect(grade('student-answer', new UnauthorisedGradingModel())).rejects.toThrow(
+        /rejected the API key.*\.env/is,
+      );
+    });
+
+    it('never puts the raw JSON body from the provider in front of the user', async () => {
+      const error = await grade('student-answer', new UnauthorisedGradingModel()).catch((e) => e);
+
+      const shown = [error.message, ...error.details].join(' ');
+      expect(shown).not.toContain('@type');
+      expect(shown).not.toContain('type.googleapis.com');
+      expect(shown).not.toContain('{');
+    });
+
+    it('still keeps enough of the reason to diagnose it', async () => {
+      const error = await grade('student-answer', new UnauthorisedGradingModel()).catch((e) => e);
+
+      expect(error.details.join(' ')).toMatch(/gemini said:/i);
+      expect(error.details.join(' ')).toMatch(/invalid authentication credentials/i);
+      // Trimmed to one line, not the whole body.
+      expect(error.details.every((line: string) => line.length <= 240)).toBe(true);
+    });
+
+    it('treats a 403 the same way', async () => {
+      await expect(grade('student-answer', new UnauthorisedGradingModel(403))).rejects.toMatchObject(
+        { code: 'model_auth_failed' },
+      );
+    });
+  });
+
   it('recovers when a transient failure clears on retry', async () => {
     const model = new FlakyGradingModel(1);
     const { result } = await grade('student-answer', model);
@@ -476,6 +525,165 @@ describe('a model that cites evidence which is not in the answer', () => {
     expect(result.confidence).toBeLessThan(0.65);
     expect(result.requiresHumanReview).toBe(true);
     expect(result.reviewReasons.join(' ')).toMatch(/could not be found in the answer/i);
+  });
+});
+
+/* ========================================================================== *
+ * A rubric the demo grader does not know
+ * ========================================================================== */
+
+describe('an exam the built-in grader was not written for', () => {
+  /** A rubric with this system's usual criterion ids but entirely different wording. */
+  const historyRubric: Rubric = {
+    id: 'history',
+    title: 'History paper',
+    totalMarks: 3,
+    questions: [
+      {
+        id: 'q1',
+        number: 1,
+        subject: 'History',
+        maxMarks: 3,
+        prompt: 'Explain the consequences of the Treaty of Versailles.',
+        modelAnswer: 'The treaty was signed in 1919 and imposed reparations on Germany.',
+        guidance: [],
+        requiresDiagram: false,
+        criteriaSource: 'instructor',
+        criteria: [
+          { id: 'q1c1', description: 'States the treaty was signed in 1919', maxMarks: 1 },
+          { id: 'q1c2', description: 'Identifies reparations imposed on Germany', maxMarks: 1 },
+          { id: 'q1c3', description: 'Links the terms to Weimar economic hardship', maxMarks: 1 },
+        ],
+      },
+    ],
+  };
+
+  /*
+   * Every rubric this system extracts numbers its criteria q1c1, q1c2, … so an
+   * id-only rule lookup applied the physics rules to any paper at all: a correct
+   * history answer came back 0/3 with "the answer never establishes that the
+   * circuit is a closed series path". A confident wrong mark is worse than an
+   * honest refusal, so the mock now checks the criterion wording too.
+   */
+  it('refuses to mark it rather than applying another paper\'s rules', async () => {
+    const { document, bytes } = await loadAnswerFixture('student-answer');
+
+    await expect(
+      runGrading({
+        rubric: historyRubric,
+        studentDocument: document,
+        studentPdfBytes: bytes,
+        model: new MockGradingModel(),
+      }),
+    ).rejects.toMatchObject({ code: 'provider_unsupported', retryable: false });
+  });
+
+  it('says why, and what to do about it', async () => {
+    const { document, bytes } = await loadAnswerFixture('student-answer');
+
+    await expect(
+      runGrading({
+        rubric: historyRubric,
+        studentDocument: document,
+        studentPdfBytes: bytes,
+        model: new MockGradingModel(),
+      }),
+    ).rejects.toThrow(/only knows the sample paper/i);
+  });
+});
+
+/* ========================================================================== *
+ * A paper where only some questions have an instructor rubric
+ * ========================================================================== */
+
+describe('a paper mixing instructor and inferred criteria', () => {
+  /**
+   * Q1 and Q3 carry the instructor's own criteria; Q2's were inferred because
+   * the scheme defined none. The point of the test is that one unrubricked
+   * question changes nothing about the other two.
+   */
+  async function mixedRubric(): Promise<Rubric> {
+    const base = await loadRubric();
+    return {
+      ...base,
+      questions: base.questions.map((question) =>
+        question.number === 2 ? { ...question, criteriaSource: 'ai-inferred' as const } : question,
+      ),
+    };
+  }
+
+  it('grades every question, including the inferred one', async () => {
+    const { document, bytes } = await loadAnswerFixture('student-answer');
+    const { result } = await runGrading({
+      rubric: await mixedRubric(),
+      studentDocument: document,
+      studentPdfBytes: bytes,
+      model: new MockGradingModel(),
+    });
+
+    // Requirement: a missing rubric on one question must never stop the rest.
+    expect(result.questions).toHaveLength(3);
+    expect(result.maxMarks).toBe(15);
+  });
+
+  it("leaves the instructor's questions marked exactly as before", async () => {
+    const { document, bytes } = await loadAnswerFixture('student-answer');
+    const { result } = await runGrading({
+      rubric: await mixedRubric(),
+      studentDocument: document,
+      studentPdfBytes: bytes,
+      model: new MockGradingModel(),
+    });
+
+    expect(questionByNumber(result, 1).awardedMarks).toBe(2.5);
+    expect(questionByNumber(result, 3).awardedMarks).toBe(2);
+  });
+
+  it('records whose criteria produced each question, so the UI can say so', async () => {
+    const { document, bytes } = await loadAnswerFixture('student-answer');
+    const { result } = await runGrading({
+      rubric: await mixedRubric(),
+      studentDocument: document,
+      studentPdfBytes: bytes,
+      model: new MockGradingModel(),
+    });
+
+    expect(questionByNumber(result, 1).criteriaSource).toBe('instructor');
+    expect(questionByNumber(result, 2).criteriaSource).toBe('ai-inferred');
+    expect(questionByNumber(result, 3).criteriaSource).toBe('instructor');
+  });
+
+  /*
+   * The demo grader has no rules for criteria it did not write, and refusing the
+   * run over that would let one question sink the paper. It declines this
+   * question and says why, while the rest grade normally.
+   */
+  it('declines only the inferred question when the grader cannot mark it', async () => {
+    const { document, bytes } = await loadAnswerFixture('student-answer');
+    const { result } = await runGrading({
+      rubric: await mixedRubric(),
+      studentDocument: document,
+      studentPdfBytes: bytes,
+      model: new MockGradingModel(),
+    });
+
+    const q2 = questionByNumber(result, 2);
+    expect(q2.awardedMarks).toBe(0);
+    expect(q2.criteria.every((criterion) => criterion.status === 'missing')).toBe(true);
+    expect(q2.summary).toMatch(/not marked/i);
+    expect(result.requiresHumanReview).toBe(true);
+  });
+
+  it('still satisfies every invariant', async () => {
+    const { document, bytes } = await loadAnswerFixture('student-answer');
+    const { result } = await runGrading({
+      rubric: await mixedRubric(),
+      studentDocument: document,
+      studentPdfBytes: bytes,
+      model: new MockGradingModel(),
+    });
+
+    expect(checkResultInvariants(result)).toEqual([]);
   });
 });
 

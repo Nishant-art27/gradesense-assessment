@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import type { Annotation, FindingKind, GradingResult, Rect } from '@gradesense/shared';
+import { ANNOTATION_LABELS, paletteRgb01 } from '@gradesense/shared';
 
 /**
  * Produces an annotated copy of the answer paper.
@@ -16,24 +17,13 @@ import type { Annotation, FindingKind, GradingResult, Rect } from '@gradesense/s
  * what they see on screen.
  */
 
-/** Colour per finding kind, chosen to stay legible over black text on white paper. */
-const COLOURS: Record<FindingKind, { r: number; g: number; b: number }> = {
-  incorrect: { r: 0.84, g: 0.15, b: 0.16 },
-  missing: { r: 0.89, g: 0.47, b: 0.0 },
-  spelling: { r: 0.17, g: 0.44, b: 0.78 },
-  grammar: { r: 0.35, g: 0.35, b: 0.75 },
-  layout: { r: 0.55, g: 0.35, b: 0.7 },
-  praise: { r: 0.1, g: 0.55, b: 0.3 },
-};
+/**
+ * Colour and label per finding kind, from the shared palette the web stylesheet
+ * also reads — so a red box on screen is the same red in this file.
+ */
+const COLOURS: Record<FindingKind, { r: number; g: number; b: number }> = paletteRgb01();
 
-const LABELS: Record<FindingKind, string> = {
-  incorrect: 'Incorrect',
-  missing: 'Missing',
-  spelling: 'Spelling',
-  grammar: 'Grammar',
-  layout: 'Layout',
-  praise: 'Good',
-};
+const LABELS = ANNOTATION_LABELS;
 
 export interface AnnotatedPdfInput {
   originalBytes: Buffer;

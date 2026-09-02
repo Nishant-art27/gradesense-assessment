@@ -12,32 +12,73 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export type ProviderName = 'mock' | 'anthropic';
+export type ProviderName = 'mock' | 'anthropic' | 'gemini' | 'groq';
+
+const KEY_FOR: Record<Exclude<ProviderName, 'mock'>, string> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  groq: 'GROQ_API_KEY',
+};
+
+const LIVE_PROVIDERS = Object.keys(KEY_FOR) as Array<Exclude<ProviderName, 'mock'>>;
+
+function isLiveProvider(name: string): name is Exclude<ProviderName, 'mock'> {
+  return (LIVE_PROVIDERS as string[]).includes(name);
+}
 
 /**
  * `mock` is the default on purpose. A reviewer with no API key must be able to
  * clone, install, run the app and run the whole test suite without editing
- * anything — so the deterministic provider is what you get unless you ask for
- * the real one.
+ * anything — so the deterministic provider is what you get unless a real one is
+ * asked for by name *and* its key is present.
  */
 function resolveProvider(): ProviderName {
   const requested = (process.env.MODEL_PROVIDER ?? 'mock').toLowerCase();
-  if (requested === 'anthropic') {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      console.warn(
-        '[config] MODEL_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set. Falling back to the mock provider.',
-      );
-      return 'mock';
-    }
-    return 'anthropic';
+  if (requested === 'mock') return 'mock';
+
+  if (!isLiveProvider(requested)) {
+    console.warn(
+      `[config] MODEL_PROVIDER="${requested}" is not recognised. Expected mock, ${LIVE_PROVIDERS.join(', ')}. Using the mock provider.`,
+    );
+    return 'mock';
   }
-  return 'mock';
+
+  // Falling back beats starting a server that fails on its first request, but it
+  // must be said out loud — silently marking with the demo grader when a real one
+  // was asked for would be the worst of both.
+  const keyName = KEY_FOR[requested];
+  if (!process.env[keyName]) {
+    console.warn(
+      `[config] MODEL_PROVIDER=${requested} but ${keyName} is not set. Falling back to the mock provider.`,
+    );
+    return 'mock';
+  }
+
+  return requested;
 }
+
+/**
+ * Default model per provider, overridable with GRADING_MODEL.
+ *
+ * Gemini Flash is chosen over Pro because marking is a bounded, schema-guided
+ * task rather than open-ended generation, and a paper costs one call per
+ * question — latency and price compound across a class.
+ */
+const DEFAULT_MODEL: Record<ProviderName, string> = {
+  mock: 'rule-based-mock',
+  anthropic: 'claude-opus-5',
+  gemini: 'gemini-2.5-flash',
+  // Groq's strict structured-output support is limited to a few models, and this
+  // is the most capable of them. Picking one without it would fail every call.
+  groq: 'openai/gpt-oss-120b',
+};
+
+const PROVIDER = resolveProvider();
 
 export const config = {
   port: num(process.env.PORT, 4000),
-  provider: resolveProvider(),
-  model: process.env.GRADING_MODEL ?? 'claude-opus-5',
+  provider: PROVIDER,
+  model: process.env.GRADING_MODEL ?? DEFAULT_MODEL[PROVIDER],
 
   paths: {
     repoRoot: REPO_ROOT,

@@ -1,5 +1,12 @@
+import { useMemo, useState } from 'react';
 import type { Annotation, CriterionScore, GradingResult, QuestionResult } from '@gradesense/shared';
-import { ScoreDial } from './ScoreDial.js';
+import { ConfidenceReading, ScoreDial } from './ScoreDial.js';
+import { Badge } from './ui/Badge.js';
+import { Card } from './ui/Card.js';
+import { Callout } from './ui/Callout.js';
+import { Quote } from './ui/Quote.js';
+import { Disclose, Meter, Segmented, bandFor } from './ui/misc.js';
+import { cx } from './ui/cx.js';
 
 /**
  * The explanation panel: what was awarded, why, and on what evidence.
@@ -8,6 +15,10 @@ import { ScoreDial } from './ScoreDial.js';
  * correction. An unverified quote is labelled as such rather than dropped — a
  * system that hid its own failed citations would look more trustworthy than it
  * is, which is the opposite of the point.
+ *
+ * The summary is pinned and the questions sit behind a tab row, because the
+ * whole paper stacked into one column meant the mark scrolled off screen exactly
+ * when a teacher was reading the reasons for it.
  */
 
 const STATUS_LABELS = {
@@ -15,6 +26,13 @@ const STATUS_LABELS = {
   partial: 'Partial',
   missing: 'Missing',
   incorrect: 'Incorrect',
+} as const;
+
+const STATUS_TONES = {
+  correct: 'success',
+  partial: 'accent',
+  missing: 'neutral',
+  incorrect: 'danger',
 } as const;
 
 const AUDIT_LABELS: Record<string, string> = {
@@ -31,6 +49,8 @@ const AUDIT_LABELS: Record<string, string> = {
   unknown_criterion_ignored: 'Unknown criterion ignored',
 };
 
+const ALL = 'all';
+
 export function RubricPanel({
   result,
   annotations,
@@ -42,110 +62,155 @@ export function RubricPanel({
   selectedId: string | null;
   onSelectAnnotation: (id: string | null) => void;
 }) {
+  const [tab, setTab] = useState<string>(ALL);
   const percentage = result.maxMarks > 0 ? Math.round((result.totalMarks / result.maxMarks) * 100) : 0;
 
+  const tabs = useMemo(
+    () => [
+      { id: ALL, label: 'All' },
+      ...result.questions.map((question) => ({
+        id: question.questionId,
+        label: `Q${question.number}`,
+        detail: `${question.awardedMarks}/${question.maxMarks}`,
+      })),
+    ],
+    [result.questions],
+  );
+
+  // A tab for a question that no longer exists falls back to All.
+  const shown =
+    tab === ALL
+      ? result.questions
+      : result.questions.filter((question) => question.questionId === tab);
+  const questions = shown.length > 0 ? shown : result.questions;
+
   return (
-    <div className="rubric-panel">
-      <div className="score-header">
-        <ScoreDial total={result.totalMarks} max={result.maxMarks} confidence={result.confidence} />
-        <div className="score-meta">
-          <h2>
-            {percentage}% of the paper
-            {/* Sits beside the heading rather than on the dial, where it used to
-                collide with the confidence figure. */}
-            {result.requiresHumanReview && <span className="chip-review">needs review</span>}
-          </h2>
-          <p>
-            {result.questions.length} questions · {annotations.length} annotations
-          </p>
-          <span className="score-provider">
-            {result.provider === 'mock' ? 'rule-based mock' : `${result.provider} · ${result.model}`}
-          </span>
+    <Card className="panel">
+      {/*
+        Summary and tabs pin together. The mark is what a teacher checks the
+        reasoning against, and the tabs are how they move between questions —
+        both are useless once scrolled off the top of a long paper.
+      */}
+      <div className="panel__sticky">
+        <div className="panel__summary">
+          <ScoreDial total={result.totalMarks} max={result.maxMarks} confidence={result.confidence} />
+          <div className="panel__meta">
+            <h2 className="panel__pct">
+              {percentage}% of the paper
+              {result.requiresHumanReview && <Badge tone="accent">needs review</Badge>}
+            </h2>
+            <p className="panel__counts">
+              <ConfidenceReading confidence={result.confidence} /> · {result.questions.length}{' '}
+              questions · {annotations.length} annotations
+            </p>
+            <span className="panel__provider">
+              {result.provider === 'mock' ? 'rule-based mock' : `${result.provider} · ${result.model}`}
+            </span>
+          </div>
+        </div>
+
+        <div className="panel__tabs">
+          <Segmented options={tabs} value={tab} onChange={setTab} ariaLabel="Questions" />
         </div>
       </div>
 
-      {result.requiresHumanReview && (
-        <div className="review-banner">
-          <strong>Needs a human check before these marks are used</strong>
-          <ul>
-            {result.reviewReasons.map((reason, index) => (
-              <li key={index}>{reason}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <div className="panel__body">
+        {result.requiresHumanReview && (
+          <Callout tone="warn" title="Needs a human check before these marks are used">
+            <ul>
+              {result.reviewReasons.map((reason, index) => (
+                <li key={index}>{reason}</li>
+              ))}
+            </ul>
+          </Callout>
+        )}
 
-      {result.questions.map((question, index) => (
-        <QuestionBlock
-          key={question.questionId}
-          question={question}
-          index={index}
-          annotations={annotations}
-          selectedId={selectedId}
-          onSelectAnnotation={onSelectAnnotation}
-        />
-      ))}
+        {questions.map((question) => (
+          <QuestionBlock
+            key={question.questionId}
+            question={question}
+            annotations={annotations}
+            selectedId={selectedId}
+            onSelectAnnotation={onSelectAnnotation}
+          />
+        ))}
 
-      {result.audit.length > 0 && (
-        <details className="disclose">
-          <summary>Automatic corrections applied ({result.audit.length})</summary>
-          <ul>
-            {result.audit.map((event, index) => (
-              <li key={index}>
-                <span className="audit-kind">{AUDIT_LABELS[event.kind] ?? event.kind}</span>
-                {event.before !== null && event.after !== null && (
-                  <span className="audit-change">
-                    {event.before} → {event.after}
+        {result.audit.length > 0 && (
+          <Disclose summary={`Automatic corrections applied (${result.audit.length})`}>
+            <ul className="audit">
+              {result.audit.map((event, index) => (
+                <li key={index}>
+                  <span className="audit__kind">
+                    {AUDIT_LABELS[event.kind] ?? event.kind}
+                    {event.before !== null && event.after !== null && (
+                      <span className="audit__change">
+                        {event.before} → {event.after}
+                      </span>
+                    )}
                   </span>
-                )}
-                <span className="audit-detail">{event.detail}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </div>
+                  <span className="audit__detail">{event.detail}</span>
+                </li>
+              ))}
+            </ul>
+          </Disclose>
+        )}
+      </div>
+    </Card>
   );
 }
 
 function QuestionBlock({
   question,
-  index,
   annotations,
   selectedId,
   onSelectAnnotation,
 }: {
   question: QuestionResult;
-  index: number;
   annotations: Annotation[];
   selectedId: string | null;
   onSelectAnnotation: (id: string | null) => void;
 }) {
-  const fraction = question.maxMarks > 0 ? question.awardedMarks / question.maxMarks : 0;
-
   return (
-    <section className="question-block">
-      <header className="question-header">
+    <section className="question">
+      <header className="question__head">
         <h3>
           Q{question.number} · {question.subject}
         </h3>
-        <div className="question-marks">
-          <span className="mark-bar">
-            <span style={{ width: `${fraction * 100}%` }} />
+        <div className="question__marks">
+          {question.state !== 'graded' && (
+            <Badge tone={question.state === 'ungraded' ? 'danger' : 'neutral'}>{question.state}</Badge>
+          )}
+          <Meter value={question.awardedMarks} max={question.maxMarks} />
+          <span>
+            {question.awardedMarks} / {question.maxMarks}
           </span>
-          {question.awardedMarks} / {question.maxMarks}
-          {question.state !== 'graded' && <span className={`state-tag ${question.state}`}>{question.state}</span>}
         </div>
       </header>
 
-      <p className="question-summary">{question.summary}</p>
+      {/* Whose standard produced these marks. Inferred criteria are never shown
+          as though the instructor wrote them. */}
+      {question.criteriaSource === 'ai-inferred' ? (
+        <Callout tone="warn" title="AI-inferred grading">
+          <p>
+            No instructor rubric was provided for this question. The criteria below were inferred
+            from the model answer, and the marks follow them.
+          </p>
+        </Callout>
+      ) : (
+        !question.guidanceProvided && (
+          <p className="question__provenance">
+            Instructor-defined rubric · no grading guidance was supplied for this question
+          </p>
+        )
+      )}
+
+      <p className="question__summary">{question.summary}</p>
 
       <ul className="criteria">
-        {question.criteria.map((criterion, criterionIndex) => (
+        {question.criteria.map((criterion) => (
           <CriterionRow
             key={criterion.criterionId}
             criterion={criterion}
-            delayMs={index * 90 + criterionIndex * 45}
             annotations={annotations.filter((a) => a.criterionId === criterion.criterionId)}
             selectedId={selectedId}
             onSelectAnnotation={onSelectAnnotation}
@@ -154,14 +219,13 @@ function QuestionBlock({
       </ul>
 
       {question.notes.length > 0 && (
-        <details className="disclose">
-          <summary>Why the confidence is {Math.round(question.confidence * 100)}%</summary>
+        <Disclose summary={`Why the confidence is ${Math.round(question.confidence * 100)}%`}>
           <ul>
             {question.notes.map((note, noteIndex) => (
               <li key={noteIndex}>{note}</li>
             ))}
           </ul>
-        </details>
+        </Disclose>
       )}
     </section>
   );
@@ -169,55 +233,66 @@ function QuestionBlock({
 
 function CriterionRow({
   criterion,
-  delayMs,
   annotations,
   selectedId,
   onSelectAnnotation,
 }: {
   criterion: CriterionScore;
-  delayMs: number;
   annotations: Annotation[];
   selectedId: string | null;
   onSelectAnnotation: (id: string | null) => void;
 }) {
-  const full = criterion.awardedMarks >= criterion.maxMarks;
-  const none = criterion.awardedMarks === 0;
-  const tone = full ? 'full' : none ? 'zero' : 'partial';
+  const tone = bandFor(criterion.awardedMarks, criterion.maxMarks);
   const linked = annotations[0];
   const active = linked !== undefined && linked.id === selectedId;
+  const evidence = criterion.evidence;
 
   return (
-    <li className={`criterion ${tone}${active ? ' active' : ''}`} style={{ animationDelay: `${delayMs}ms` }}>
-      <div className="criterion-head">
-        <span className={`criterion-mark ${tone}`}>
-          {criterion.awardedMarks}/{criterion.maxMarks}
-        </span>
-        <span className="criterion-description">{criterion.description}</span>
-        <span className={`criterion-status ${criterion.status}`}>{STATUS_LABELS[criterion.status]}</span>
-      </div>
+    <li>
+      <Card pad="none" className={cx('criterion', tone, active && 'is-active')}>
+        <div className="criterion__head">
+          <span className="criterion__mark">
+            {criterion.awardedMarks}/{criterion.maxMarks}
+          </span>
+          <span className="criterion__description">{criterion.description}</span>
+          <Badge tone={STATUS_TONES[criterion.status]}>{STATUS_LABELS[criterion.status]}</Badge>
+        </div>
 
-      <p className="criterion-reasoning">{criterion.reasoning}</p>
+        <p className="criterion__reasoning">{criterion.reasoning}</p>
 
-      {criterion.evidence && (
-        <blockquote
-          className={`evidence${criterion.evidence.verified ? '' : ' unverified'}${linked ? ' clickable' : ''}`}
-          onClick={() => linked && onSelectAnnotation(linked.id)}
-          title={linked ? 'Show this on the paper' : undefined}
-        >
-          <span className="evidence-quote">“{criterion.evidence.quote}”</span>
-          {!criterion.evidence.verified && (
-            <span className="evidence-flag">
-              This quote could not be found in the answer, so the judgement is unverified.
-            </span>
-          )}
-        </blockquote>
-      )}
+        {evidence && (
+          <>
+            <Quote
+              flagged={!evidence.verified}
+              onActivate={linked ? () => onSelectAnnotation(linked.id) : undefined}
+              title={linked ? 'Show this on the paper' : undefined}
+              flag={
+                evidence.verified
+                  ? undefined
+                  : 'This quote could not be found in the answer, so the judgement is unverified.'
+              }
+            >
+              “{evidence.quote}”
+            </Quote>
+            {/*
+              A fuzzy match is a real caveat: the quote is not literally what the
+              student wrote. Saying so is cheaper than a teacher discovering it.
+            */}
+            {evidence.verified && evidence.similarity < 0.999 && (
+              <span className="match-note">
+                Matched at {Math.round(evidence.similarity * 100)}% — the answer reads “
+                {evidence.matchedText ?? evidence.quote}”
+              </span>
+            )}
+          </>
+        )}
 
-      {criterion.correction && (
-        <p className="criterion-correction">
-          <strong>Correction:</strong> {criterion.correction}
-        </p>
-      )}
+        {criterion.correction && (
+          <p className="criterion__correction">
+            <strong>Correction:</strong> {criterion.correction}
+          </p>
+        )}
+      </Card>
     </li>
   );
 }

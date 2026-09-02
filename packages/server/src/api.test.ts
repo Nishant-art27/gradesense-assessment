@@ -362,6 +362,110 @@ describe('exporting an annotated copy', () => {
   });
 });
 
+/* ------------------------- rubrics from uploads --------------------------- */
+
+describe('setting up an exam from uploaded documents', () => {
+  async function uploadProvided(app: Express, file: string, kind: 'question_paper' | 'model_answer') {
+    const bytes = await fs.readFile(`${process.cwd()}/${file}`);
+    const response = await request(app)
+      .post('/api/documents')
+      .query({ kind, filename: file })
+      .set('Content-Type', 'application/pdf')
+      .send(bytes)
+      .expect(201);
+    return response.body.id as string;
+  }
+
+  it('reads a rubric out of an uploaded marking scheme', async () => {
+    const { app } = await makeApp();
+    const modelAnswerId = await uploadProvided(app, 'GradeSense MA.pdf', 'model_answer');
+    const questionPaperId = await uploadProvided(app, 'GradeSense QP.pdf', 'question_paper');
+
+    const response = await request(app)
+      .post('/api/rubrics/extract')
+      .send({ modelAnswerDocumentId: modelAnswerId, questionPaperDocumentId: questionPaperId })
+      .expect(200);
+
+    expect(response.body.source).toBe('parsed');
+    // Q3 of the provided scheme has no grading guidance; that is reported.
+    expect(response.body.warnings).toHaveLength(1);
+    expect(response.body.warnings[0]).toMatch(/Question 3.*no grading guidance/i);
+    expect(response.body.rubric.totalMarks).toBe(15);
+    expect(response.body.rubric.questions).toHaveLength(3);
+  });
+
+  it('marks a paper against the uploaded rubric, not the built-in one', async () => {
+    const { app } = await makeApp();
+    const modelAnswerId = await uploadProvided(app, 'GradeSense MA.pdf', 'model_answer');
+    const questionPaperId = await uploadProvided(app, 'GradeSense QP.pdf', 'question_paper');
+
+    const draft = await request(app)
+      .post('/api/rubrics/extract')
+      .send({ modelAnswerDocumentId: modelAnswerId, questionPaperDocumentId: questionPaperId })
+      .expect(200);
+
+    const saved = await request(app)
+      .post('/api/rubrics')
+      .send({ rubric: draft.body.rubric })
+      .expect(201);
+
+    const studentId = await uploadAnswer(app);
+    const graded = await request(app)
+      .post('/api/grade')
+      .send({ studentAnswerDocumentId: studentId, rubricId: saved.body.id })
+      .expect(201);
+
+    // The extracted rubric reproduces the hand-written fixture exactly, so the
+    // marks match the built-in path. That equivalence is the point of the test.
+    expect(graded.body.result.rubricId).toBe(saved.body.id);
+    expect(graded.body.result.totalMarks).toBe(7.5);
+  });
+
+  it('refuses a rubric whose marks do not add up', async () => {
+    const { app } = await makeApp();
+    const rubric = {
+      id: 'broken',
+      title: 'Broken',
+      totalMarks: 10,
+      questions: [
+        {
+          id: 'q1',
+          number: 1,
+          subject: 'Science',
+          maxMarks: 10,
+          prompt: 'x',
+          modelAnswer: 'y',
+          guidance: [],
+          requiresDiagram: false,
+          criteria: [{ id: 'q1c1', description: 'A point', maxMarks: 1 }],
+        },
+      ],
+    };
+
+    const response = await request(app).post('/api/rubrics').send({ rubric }).expect(400);
+    expect(response.body.error.code).toBe('validation_failed');
+    expect(response.body.error.details.join(' ')).toMatch(/criteria sum to 1/i);
+  });
+
+  it('404s when marking against a rubric that was never saved', async () => {
+    const { app } = await makeApp();
+    const studentId = await uploadAnswer(app);
+
+    const response = await request(app)
+      .post('/api/grade')
+      .send({ studentAnswerDocumentId: studentId, rubricId: 'nope' })
+      .expect(404);
+
+    expect(response.body.error.code).toBe('not_found');
+  });
+
+  it('requires a marking scheme to read a rubric from', async () => {
+    const { app } = await makeApp();
+    const response = await request(app).post('/api/rubrics/extract').send({}).expect(400);
+    expect(response.body.error.code).toBe('validation_failed');
+  });
+});
+
 /* --------------------------------- meta ---------------------------------- */
 
 describe('meta endpoints', () => {

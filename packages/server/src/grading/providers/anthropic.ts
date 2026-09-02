@@ -1,15 +1,20 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {
+  RUBRIC_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
   buildQuestionPrompt,
   buildRepairPrompt,
+  buildRubricPrompt,
   type GradeQuestionInput,
   type GradingModel,
   type ModelAttemptContext,
+  type CriteriaInferenceInput,
   type ModelResponse,
+  type RubricExtractionInput,
 } from '../model.js';
-import { QUESTION_GRADING_JSON_SCHEMA } from '../output-schema.js';
+import { QUESTION_GRADING_JSON_SCHEMA, RUBRIC_JSON_SCHEMA } from '../output-schema.js';
 import { AppError } from '../../errors.js';
+import { safeJsonParse } from './json.js';
 
 /**
  * The real grading model.
@@ -95,43 +100,59 @@ export class AnthropicGradingModel implements GradingModel {
 
     return { data: safeJsonParse(raw), raw };
   }
-}
 
-function safeJsonParse(text: string): unknown {
-  if (text.length === 0) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    // Structured outputs should make this unreachable, but a model that wraps
-    // its JSON in prose should still be recoverable rather than a hard failure.
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      try {
-        return JSON.parse(text.slice(firstBrace, lastBrace + 1));
-      } catch {
-        return null;
-      }
+  /**
+   * Reads a rubric out of a marking scheme whose layout the structural parser
+   * could not handle. Text-only: a marking scheme's content is its words, and
+   * sending the PDF as well would cost tokens for no extra signal.
+   */
+  async extractRubric(input: RubricExtractionInput): Promise<ModelResponse> {
+    const response = await this.client.messages.create({
+      model: this.modelName,
+      max_tokens: 16_000,
+      system: [{ type: 'text', text: RUBRIC_SYSTEM_PROMPT }],
+      thinking: { type: 'adaptive' },
+      output_config: {
+        effort: 'high',
+        format: { type: 'json_schema', schema: RUBRIC_JSON_SCHEMA },
+      },
+      messages: [{ role: 'user', content: buildRubricPrompt(input) }],
+    });
+
+    if (response.stop_reason === 'refusal') {
+      throw new AppError('model_output_invalid', 'The model declined to read this marking scheme.', {
+        status: 502,
+        retryable: false,
+        details: [response.stop_details?.explanation ?? 'No explanation given.'],
+      });
     }
-    return null;
-  }
-}
 
-/**
- * Whether a failure is worth retrying.
- *
- * Rate limits, connection drops and 5xx responses are transient. A bad request
- * or a bad key will fail identically forever, so retrying only delays an honest
- * error.
- */
-export function isTransientModelError(error: unknown): boolean {
-  if (error instanceof Anthropic.RateLimitError) return true;
-  if (error instanceof Anthropic.APIConnectionError) return true;
-  if (error instanceof Anthropic.InternalServerError) return true;
-  if (error instanceof Anthropic.APIError) {
-    return typeof error.status === 'number' && error.status >= 500;
+    const raw = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+      .trim();
+
+    return { data: safeJsonParse(raw), raw };
   }
-  // Anything that is not an SDK error at all — a socket hang-up, an aborted
-  // fetch — is treated as transient.
-  return error instanceof Error && !(error instanceof AppError);
+
+  /** Derives criteria for a question whose scheme defined none. */
+  async inferCriteria(input: CriteriaInferenceInput): Promise<ModelResponse> {
+    const response = await this.client.messages.create({
+      model: this.modelName,
+      max_tokens: 8_000,
+      system: [{ type: 'text', text: input.systemPrompt }],
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'high', format: { type: 'json_schema', schema: input.schema } },
+      messages: [{ role: 'user', content: input.prompt }],
+    });
+
+    const raw = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+      .trim();
+
+    return { data: safeJsonParse(raw), raw };
+  }
 }

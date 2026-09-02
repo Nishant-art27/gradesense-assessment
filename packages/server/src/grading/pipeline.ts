@@ -15,7 +15,7 @@ import { ModelUnavailableError, RubricInvalidError } from '../errors.js';
 import { isBlankAnswer, segmentAnswers, type AnswerSegment } from '../ingest/segment.js';
 import { anchorQuote, anchorRegion, marginNoteRect } from './anchor.js';
 import { combineConfidence, computeConfidence } from './confidence.js';
-import { isTransientModelError } from './providers/anthropic.js';
+import { asModelFailure, isTransientModelError } from './providers/transient.js';
 import type { GradingModel } from './model.js';
 import {
   blankQuestion,
@@ -242,7 +242,9 @@ async function gradeOneQuestion(input: GradeOneInput): Promise<GradeOneOutput> {
     try {
       response = await model.gradeQuestion(modelInput, context);
     } catch (error) {
-      if (!isTransientModelError(error)) throw error;
+      // A failure retrying cannot fix is reported now, in words rather than
+      // in the provider's raw JSON.
+      if (!isTransientModelError(error)) throw asModelFailure(error, model.providerName);
 
       transientFailures += 1;
       lastTransientError = error;
@@ -353,7 +355,7 @@ function buildAnnotations(input: BuildAnnotationsInput): BuildAnnotationsOutput 
     let anchor = anchorQuote(finding.quote, studentDocument.pages, startPage);
 
     if (anchor.status === 'unresolved' && finding.region) {
-      anchor = anchorRegion(finding.region, studentDocument.pageCount);
+      anchor = anchorRegion(finding.region, studentDocument.pages);
     }
 
     // When a quote wraps across lines it yields one box per line. The widest is

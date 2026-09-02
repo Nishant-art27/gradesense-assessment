@@ -6,6 +6,7 @@ import type {
   GradingResult,
   GradingSummary,
   IngestedDocument,
+  Rubric,
 } from '@gradesense/shared';
 import { NotFoundError } from '../errors.js';
 
@@ -37,9 +38,11 @@ interface DatabaseShape {
   documents: Record<string, IngestedDocument>;
   results: Record<string, GradingResult>;
   annotations: Record<string, Annotation[]>;
+  /** Confirmed rubrics, keyed by id. Each one is an exam that can be marked. */
+  rubrics: Record<string, Rubric>;
 }
 
-const EMPTY_DB: DatabaseShape = { version: 1, documents: {}, results: {}, annotations: {} };
+const EMPTY_DB: DatabaseShape = { version: 1, documents: {}, results: {}, annotations: {}, rubrics: {} };
 
 export interface Repository {
   saveDocument(document: IngestedDocument, bytes: Buffer): Promise<void>;
@@ -47,6 +50,11 @@ export interface Repository {
   requireDocument(id: string): Promise<IngestedDocument>;
   getDocumentBytes(id: string): Promise<Buffer>;
   listDocuments(): Promise<DocumentSummary[]>;
+
+  saveRubric(rubric: Rubric): Promise<Rubric>;
+  getRubric(id: string): Promise<Rubric | null>;
+  requireRubric(id: string): Promise<Rubric>;
+  listRubrics(): Promise<Rubric[]>;
 
   saveResult(result: GradingResult, annotations: Annotation[]): Promise<void>;
   getResult(id: string): Promise<GradingResult | null>;
@@ -153,6 +161,29 @@ export class JsonFileRepository implements Repository {
     return Object.values(db.documents)
       .map(({ pages: _pages, fullText: _fullText, ...summary }) => summary)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async saveRubric(rubric: Rubric): Promise<Rubric> {
+    await this.mutate((db) => {
+      db.rubrics[rubric.id] = rubric;
+    });
+    return rubric;
+  }
+
+  async getRubric(id: string): Promise<Rubric | null> {
+    const db = await this.load();
+    return db.rubrics[id] ?? null;
+  }
+
+  async requireRubric(id: string): Promise<Rubric> {
+    const rubric = await this.getRubric(id);
+    if (!rubric) throw new NotFoundError(`No rubric with id "${id}".`);
+    return rubric;
+  }
+
+  async listRubrics(): Promise<Rubric[]> {
+    const db = await this.load();
+    return Object.values(db.rubrics);
   }
 
   async saveResult(result: GradingResult, annotations: Annotation[]): Promise<void> {

@@ -10,6 +10,20 @@ export const CriterionSchema = z.object({
   maxMarks: z.number().positive(),
 });
 
+/**
+ * Where a question's markable points came from.
+ *
+ * `instructor` — read from the marking scheme the teacher uploaded.
+ * `ai-inferred` — the scheme had no rubric for this question, so criteria were
+ *   derived from the question and the model answer.
+ *
+ * These must never be conflated. A teacher deciding whether to trust a mark
+ * needs to know whether the standard it was measured against is theirs or the
+ * machine's, and inferred criteria are shown as such everywhere they appear.
+ */
+export const CRITERIA_SOURCES = ['instructor', 'ai-inferred'] as const;
+export type CriteriaSource = (typeof CRITERIA_SOURCES)[number];
+
 export const QuestionSchema = z.object({
   id: z.string(),
   number: z.number().int().positive(),
@@ -26,6 +40,8 @@ export const QuestionSchema = z.object({
   guidance: z.array(z.string()).default([]),
   /** True when a diagram/graph carries some of the marks. Drives vision grading. */
   requiresDiagram: z.boolean().default(false),
+  /** Defaults to instructor, so a hand-written rubric needs no extra field. */
+  criteriaSource: z.enum(CRITERIA_SOURCES).default('instructor'),
   criteria: z.array(CriterionSchema).min(1),
 });
 
@@ -35,6 +51,20 @@ export const RubricSchema = z.object({
   totalMarks: z.number().positive(),
   questions: z.array(QuestionSchema).min(1),
 });
+
+/**
+ * A rubric between parsing and inference, where a question may still have no
+ * criteria. Nothing is ever graded or saved in this state — `RubricSchema` keeps
+ * its `min(1)`, so the looser shape cannot leak past `extractRubric`.
+ */
+export const DraftQuestionSchema = QuestionSchema.extend({
+  criteria: z.array(CriterionSchema),
+});
+export const DraftRubricSchema = RubricSchema.extend({
+  questions: z.array(DraftQuestionSchema),
+});
+export type DraftQuestion = z.infer<typeof DraftQuestionSchema>;
+export type DraftRubric = z.infer<typeof DraftRubricSchema>;
 
 export type Criterion = z.infer<typeof CriterionSchema>;
 export type Question = z.infer<typeof QuestionSchema>;

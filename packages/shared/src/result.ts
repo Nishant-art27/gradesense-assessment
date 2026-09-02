@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CRITERION_STATUSES, FINDING_KINDS } from './model-output.js';
+import { CRITERIA_SOURCES } from './rubric.js';
 
 /** A rectangle in normalised page space (0..1), so it survives zoom and re-render. */
 export const RectSchema = z.object({
@@ -61,6 +62,10 @@ export const QuestionResultSchema = z.object({
   number: z.number().int(),
   subject: z.string(),
   state: z.enum(QUESTION_STATES),
+  /** Whether the criteria below are the instructor's or were inferred. */
+  criteriaSource: z.enum(CRITERIA_SOURCES).default('instructor'),
+  /** True when the scheme defined criteria but gave no grading guidance. */
+  guidanceProvided: z.boolean().default(true),
   awardedMarks: z.number(),
   maxMarks: z.number(),
   summary: z.string(),

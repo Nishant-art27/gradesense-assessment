@@ -36,6 +36,53 @@ export class FailingGradingModel implements GradingModel {
 }
 
 /**
+ * Rejects the credentials, the way a live provider does with a key that is
+ * missing, mistyped or expired.
+ *
+ * The error deliberately carries a whole JSON body as its message, because that
+ * is exactly what the Google and Anthropic SDKs do — and passing that body
+ * through to the browser was the bug this guards.
+ */
+export class UnauthorisedGradingModel implements GradingModel {
+  readonly providerName = 'gemini';
+  readonly modelName = 'needs-a-key';
+
+  attempts = 0;
+
+  constructor(private readonly status: 401 | 403 = 401) {}
+
+  private reject(): never {
+    this.attempts += 1;
+    const body = {
+      error: {
+        code: this.status,
+        message:
+          'Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.',
+        status: 'UNAUTHENTICATED',
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            reason: 'ACCESS_TOKEN_TYPE_UNSUPPORTED',
+            metadata: { service: 'generativelanguage.googleapis.com' },
+          },
+        ],
+      },
+    };
+    const error = new Error(JSON.stringify(body)) as Error & { status: number };
+    error.status = this.status;
+    throw error;
+  }
+
+  async gradeQuestion(_input: GradeQuestionInput, _context: ModelAttemptContext): Promise<ModelResponse> {
+    this.reject();
+  }
+
+  async extractRubric(): Promise<ModelResponse> {
+    this.reject();
+  }
+}
+
+/**
  * Returns unusable output.
  *
  * `mode: 'always'` never recovers, which should end as an unrecoverable-output

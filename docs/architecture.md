@@ -26,6 +26,25 @@ result schema and the API request/response shapes all live there, so the server
 validates against exactly the types the client consumes. A field renamed in one place
 fails to compile in the other.
 
+## Two phases, not one
+
+Setting up an exam and marking a script are different jobs on different cadences.
+
+**Phase 1, once per paper.** The question paper and marking scheme are uploaded, a
+rubric is read out of them, and a human confirms it. Extraction tries a structural
+parse first — marking schemes are laid out consistently enough to read exactly,
+and when that works it is free, instant, deterministic and incapable of inventing
+a criterion that was never there. The language model is the *fallback*, which is
+the opposite of the usual arrangement and deliberately so.
+
+The confirmation step is not decoration. A rubric is the specification every
+subsequent mark is measured against, so if extraction misreads "1 mark" as "2",
+every script in the batch is wrong in the same invisible way. One human review of
+one rubric protects two hundred scripts — a far better place to spend a teacher's
+attention than re-checking every result.
+
+**Phase 2, once per student.** Everything below.
+
 ## The path a paper takes
 
 ```
@@ -82,13 +101,29 @@ hardest part of the build:
    producers emit a whole *line* as one positioned run, a phrase inside a line has no
    rectangle of its own — its box is interpolated across the line using per-character
    widths, so underlining six words of a line highlights six words, not the line.
-2. **Region** — a diagram has no text to quote. The model can return a normalised
-   bounding box instead, which is clamped to the page and marked `region`. Vision
-   bounding boxes are approximate, so these carry a confidence penalty and say
-   "check the position" in the UI.
-3. **Unresolved** — if a quote matches nothing, the annotation becomes a margin note
-   and is flagged. **We never guess a position.** A box drawn on the wrong words is
-   worse for a teacher than an honest note in the margin.
+2. **Region** — a diagram has no text to quote, so the model returns a bounding box
+   instead. That box is **not drawn**. Bounding boxes are the least reliable thing a
+   language model produces, and drawn as given they were visibly wrong: one framed most
+   of the circuit but cut the ammeter off the right-hand edge; another was a sliver
+   standing beside a single number on the economics graph's axis. Clamping them to the
+   page made them legal without making them right.
+
+   So the box is used only to choose *which* drawing on the page the finding is about,
+   and what gets drawn is that drawing measured from its own labels. A drawing's labels
+   are text and text has coordinates: "battery", "switch", "voltmeter" and "ameter" all
+   carry exact rectangles, so the extent of the circuit they label can be measured
+   rather than guessed. `grading/diagram.ts` separates labels from prose by left margin
+   — body text starts at one of a handful of x positions and runs most of the page
+   width, labels sit wherever the thing they name happens to be — then groups them into
+   bands, using the prose between two drawings rather than the distance to tell them
+   apart. The result is deterministic, costs nothing, and is identical on every run,
+   which is also why the keyless mock and a live model put their diagram annotations in
+   exactly the same place. These still carry a confidence penalty and say "check the
+   position" in the UI, because *which* drawing was chosen is still the model's call.
+3. **Unresolved** — if a quote matches nothing, or a region box points at no drawing at
+   all, the annotation becomes a margin note and is flagged. **We never guess a
+   position.** A box drawn on the wrong words — or across blank paper — is worse for a
+   teacher than an honest note in the margin.
 
 ### 3. Fuzzy matching needs a per-token floor, not just an average
 
@@ -163,6 +198,29 @@ load-bearing: canned responses would make every test pass without the pipeline d
 anything, whereas this exercises clamping, evidence verification, anchoring and
 confidence on real input. It is not as good as the real model. It is *deterministic*,
 which is what a test suite needs.
+
+**Three live providers behind one seam, and one of them cannot see.** Groq, Gemini and
+Anthropic all satisfy the same `GradingModel` interface, so the prompts, the JSON
+schemas, the clamping, the evidence checks and the confidence arithmetic are shared.
+The seam earns its keep when a vendor differs in kind rather than in detail: Gemini and
+Anthropic accept the student's PDF inline and can look at the circuit and the graph,
+while Groq's chat API takes text only.
+
+The tempting shortcut is to send Groq the same prompt anyway. That prompt says "the
+attached PDF is the student's complete answer sheet", and a model told to look at a
+drawing that was never sent will describe one — confidently, and unfalsifiably. It is
+the exact failure mode the rest of this pipeline is built to prevent, arriving through
+the prompt instead of through the marks. So `buildQuestionPrompt` branches on whether a
+PDF was actually attached, tells a text-only model plainly that it cannot see the
+drawing, and asks it to lower its own confidence rather than guess — which feeds the
+review flag. `groq.test.ts` asserts the prompt never claims an attachment that is not
+there.
+
+Groq needs no schema adapter, unlike Gemini: its strict mode wants exactly what
+`output-schema.ts` already emits. Rather than add an adapter that does nothing,
+`groq.test.ts` asserts the schema keeps satisfying strict mode — every property
+required, `additionalProperties: false` everywhere — so a drift fails a keyless test
+instead of returning 400 on every request once a key is present.
 
 **The student answer is a typed PDF, not a scan.** The brief asks for a realistic
 written answer, not a handwriting-OCR pipeline. Generating it keeps the text layer

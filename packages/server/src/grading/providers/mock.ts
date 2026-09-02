@@ -5,7 +5,9 @@ import type {
   ModelAttemptContext,
   ModelResponse,
 } from '../model.js';
-import { findPhrase, sentenceAround, windowAround } from '../text-match.js';
+import { AppError } from '../../errors.js';
+import { findDiagramByCaption } from '../diagram.js';
+import { findPhrase, normalise, sentenceAround, windowAround } from '../text-match.js';
 import { MOCK_RULES, SURFACE_ERRORS, type MockRule, type Matcher } from './mock-rules.js';
 
 /**
@@ -35,6 +37,21 @@ export class MockGradingModel implements GradingModel {
     const grading = gradeWithRules(input);
     return { data: grading, raw: JSON.stringify(grading) };
   }
+}
+
+/**
+ * Finds the rule for a criterion.
+ *
+ * Both the id and the wording must agree. The id alone is not enough: every
+ * rubric this system extracts numbers its criteria q1c1, q1c2, … so an id-only
+ * lookup silently applies one paper's rules to a completely different exam.
+ */
+function findRule(criterion: { id: string; description: string }): MockRule | null {
+  const rule = MOCK_RULES[criterion.id];
+  if (!rule) return null;
+  return normalise(rule.criterionDescription).norm === normalise(criterion.description).norm
+    ? rule
+    : null;
 }
 
 function match(text: string, matcher: Matcher): { text: string; start: number; end: number } | null {
@@ -205,73 +222,24 @@ function resolveCriterion(
 type Region = { page: number; x: number; y: number; width: number; height: number };
 
 /**
- * A drawing's caption and its own labels are text, and text has coordinates. So
- * the extent of a diagram can be measured rather than guessed: find the caption,
- * then take the bounding box of it and every label that follows before the next
- * answer begins.
+ * Measures the drawing the rule names, and falls back to the rule's declared
+ * coordinates when it cannot be found — a student who drew a graph without
+ * labelling anything still gets an annotation, just a rougher one.
  *
- * Guessing was measurably wrong. The hardcoded box for the circuit started below
- * its caption and ended inside the English answer on the next question — it both
- * missed the thing it pointed at and defaced something unrelated.
- */
-function measureDiagramFromLabels(pages: PageText[], caption: string): Region | null {
-  for (const page of pages) {
-    const captionIndex = page.runs.findIndex(
-      (run) => run.text.trim().toLowerCase() === caption.toLowerCase(),
-    );
-    if (captionIndex === -1) continue;
-
-    const parts = [page.runs[captionIndex]!.rect];
-
-    for (let i = captionIndex + 1; i < page.runs.length; i += 1) {
-      const run = page.runs[i]!;
-      const text = run.text.trim();
-      if (text.length === 0) continue;
-      // The next question's heading ends the diagram.
-      if (/^Answer\s+\d/i.test(text)) break;
-      // Body prose runs the width of the page; diagram labels are short. A wide
-      // run means the drawing is over and normal text has resumed.
-      if (run.rect.width > 0.3) break;
-      parts.push(run.rect);
-    }
-
-    // A caption on its own tells us nothing about the drawing's extent.
-    if (parts.length < 2) continue;
-
-    const left = Math.min(...parts.map((rect) => rect.x));
-    const right = Math.max(...parts.map((rect) => rect.x + rect.width));
-    const top = Math.min(...parts.map((rect) => rect.y));
-    const bottom = Math.max(...parts.map((rect) => rect.y + rect.height));
-
-    // A little padding so the box frames the drawing instead of clipping it.
-    const pad = 0.012;
-    const x = Math.max(0, left - pad);
-    const y = Math.max(0, top - pad);
-
-    return {
-      page: page.index,
-      x,
-      y,
-      width: Math.min(1 - x, right - left + pad * 2),
-      height: Math.min(1 - y, bottom - top + pad * 2),
-    };
-  }
-
-  return null;
-}
-
-/**
- * Measures the diagram where possible, and falls back to the rule's declared
- * coordinates when the caption is missing — a student who drew a graph without
- * labelling it still gets an annotation, just a rougher one.
+ * The measurement itself lives in `grading/diagram.ts` and is the same one the
+ * live providers' regions are snapped to, so the mock and a real model put their
+ * diagram annotations in exactly the same place.
  */
 function resolveRegion(
   region: NonNullable<MockRule['missing']['diagramRegion']>,
   pages: PageText[],
   layout: { startPage: number; pageCount: number },
 ): Region {
-  const measured = measureDiagramFromLabels(pages, region.caption);
-  if (measured) return measured;
+  const measured = findDiagramByCaption(pages, region.caption);
+  if (measured) {
+    const { caption, ...box } = measured;
+    return box;
+  }
 
   const { on, ...box } = region.fallback;
   const page = on === 'document-end' ? Math.max(0, layout.pageCount - 1) : layout.startPage;
@@ -306,8 +274,52 @@ function gradeWithRules(input: GradeQuestionInput): ModelQuestionGrading {
   const { question, answerText, startPage, pageCount, pages } = input;
   const layout = { startPage, pageCount, pages };
 
+  // The mock only knows the paper its rules were written for. Refusing an
+  // unfamiliar exam outright is the honest failure: marking a history answer
+  // with physics rules produces a confident zero and nonsense feedback, which is
+  // far worse for a teacher than being told the demo grader cannot help.
+  /*
+   * Criteria that were inferred rather than set by the instructor are, by
+   * definition, ones no hand-written rule can know. Refusing the run over them
+   * would let one unrubricked question stop the whole paper, so the demo grader
+   * returns "not marked" for this question and the rest of the paper proceeds.
+   */
+  if (question.criteriaSource === 'ai-inferred') {
+    return {
+      questionId: question.id,
+      criteria: question.criteria.map((criterion) => ({
+        criterionId: criterion.id,
+        awardedMarks: 0,
+        status: 'missing' as const,
+        evidenceQuote: null,
+        reasoning:
+          'These criteria were inferred rather than set by the instructor, so the demo grader has no rule for them. Mark this question by hand, or run with an API key.',
+        correction: null,
+      })),
+      findings: [],
+      summary: `Question ${question.number} was not marked: its criteria were inferred, and the demo grader only knows instructor-defined criteria.`,
+      selfConfidence: 0,
+    };
+  }
+
+  const recognised = question.criteria.filter((criterion) => findRule(criterion) !== null);
+  if (recognised.length === 0) {
+    throw new AppError(
+      'provider_unsupported',
+      'The built-in demo grader only knows the sample paper supplied with this assignment, so it cannot mark this exam.',
+      {
+        status: 501,
+        retryable: false,
+        details: [
+          `No marking rules match question ${question.number} ("${question.subject}").`,
+          'Set MODEL_PROVIDER=anthropic with an API key to mark your own papers.',
+        ],
+      },
+    );
+  }
+
   const criteria = question.criteria.map((criterion) => {
-    const rule = MOCK_RULES[criterion.id];
+    const rule = findRule(criterion);
     if (!rule) {
       // No rule for this criterion — say so rather than inventing a mark. The
       // pipeline will treat a zero with low confidence as review-worthy.
@@ -317,7 +329,8 @@ function gradeWithRules(input: GradeQuestionInput): ModelQuestionGrading {
           awardedMarks: 0,
           status: 'missing' as const,
           evidenceQuote: null,
-          reasoning: 'The mock grader has no rule for this criterion, so it cannot be marked automatically.',
+          reasoning:
+          'The demo grader has no rule for this criterion, so it was not marked. It needs a human, or a real model.',
           correction: null,
         },
         finding: null as ModelFinding | null,

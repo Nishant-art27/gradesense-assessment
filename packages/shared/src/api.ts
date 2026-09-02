@@ -7,6 +7,11 @@ export const GradeRequestSchema = z.object({
   studentAnswerDocumentId: z.string().min(1),
   questionPaperDocumentId: z.string().nullish(),
   modelAnswerDocumentId: z.string().nullish(),
+  /**
+   * Which exam to mark against. Omitted, the server falls back to the built-in
+   * rubric for the provided paper, which is what the sample flow relies on.
+   */
+  rubricId: z.string().nullish(),
 });
 export type GradeRequest = z.infer<typeof GradeRequestSchema>;
 
@@ -49,7 +54,9 @@ export const API_ERROR_CODES = [
   'unsupported_file',
   'pdf_unreadable',
   'model_unavailable',
+  'model_auth_failed',
   'model_output_invalid',
+  'provider_unsupported',
   'rubric_invalid',
   'internal_error',
 ] as const;

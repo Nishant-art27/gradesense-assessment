@@ -7,7 +7,9 @@ import {
   CreateAnnotationSchema,
   DOCUMENT_KINDS,
   GradeRequestSchema,
+  RubricSchema,
   UpdateAnnotationSchema,
+  validateRubricArithmetic,
   type Annotation,
   type DocumentKind,
   type IngestedDocument,
@@ -26,6 +28,7 @@ import type { GradingModel } from './grading/model.js';
 import { createGradingModel } from './grading/provider-factory.js';
 import { extractPdf, looksLikePdf } from './ingest/pdf.js';
 import { loadRubric } from './rubric-source.js';
+import { extractRubric } from './rubric/extract.js';
 import { JsonFileRepository, type Repository } from './store/repository.js';
 
 export interface AppDependencies {
@@ -59,7 +62,7 @@ export function createApp(dependencies: AppDependencies): express.Express {
       provider: model.providerName,
       model: model.modelName,
       /** True when marks come from a real model rather than the rule-based mock. */
-      live: model.providerName === 'anthropic',
+      live: model.providerName !== 'mock',
     });
   });
 
@@ -190,6 +193,71 @@ export function createApp(dependencies: AppDependencies): express.Express {
     }),
   );
 
+  /* ------------------------------ rubrics -------------------------------- */
+  /*
+   * Setting up an exam is a separate phase from marking scripts, and it happens
+   * once per paper rather than once per student. Extraction produces a *draft*;
+   * nothing is marked against it until it is confirmed, because a mistake in a
+   * rubric is repeated across every script graded with it.
+   */
+
+  app.post(
+    '/api/rubrics/extract',
+    asyncHandler(async (request, response) => {
+      const modelAnswerId = String(request.body?.modelAnswerDocumentId ?? '');
+      if (modelAnswerId.length === 0) {
+        throw new ValidationError('"modelAnswerDocumentId" is required to read a rubric.');
+      }
+
+      const modelAnswer = await repository.requireDocument(modelAnswerId);
+      const questionPaperId = request.body?.questionPaperDocumentId;
+      const questionPaper =
+        typeof questionPaperId === 'string' && questionPaperId.length > 0
+          ? await repository.requireDocument(questionPaperId)
+          : null;
+
+      const draft = await extractRubric({ modelAnswer, questionPaper, model });
+      response.json(draft);
+    }),
+  );
+
+  /** Saves a rubric a human has reviewed. Only a saved rubric can mark a paper. */
+  app.post(
+    '/api/rubrics',
+    asyncHandler(async (request, response) => {
+      const parsed = RubricSchema.safeParse(request.body?.rubric);
+      if (!parsed.success) {
+        throw new ValidationError(
+          'That rubric does not match the expected shape.',
+          parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`),
+        );
+      }
+
+      // Re-checked here rather than trusted from the client: an edited rubric
+      // whose marks no longer add up would break the totals on every script.
+      const problems = validateRubricArithmetic(parsed.data);
+      if (problems.length > 0) {
+        throw new ValidationError('The rubric marks do not add up.', problems);
+      }
+
+      response.status(201).json(await repository.saveRubric(parsed.data));
+    }),
+  );
+
+  app.get(
+    '/api/rubrics',
+    asyncHandler(async (_request, response) => {
+      response.json(await repository.listRubrics());
+    }),
+  );
+
+  app.get(
+    '/api/rubrics/:id',
+    asyncHandler(async (request, response) => {
+      response.json(await repository.requireRubric(request.params.id!));
+    }),
+  );
+
   /* ------------------------------ grading -------------------------------- */
 
   app.post(
@@ -203,7 +271,9 @@ export function createApp(dependencies: AppDependencies): express.Express {
         );
       }
 
-      const rubric = await loadRubric();
+      const rubric = parsed.data.rubricId
+        ? await repository.requireRubric(parsed.data.rubricId)
+        : await loadRubric();
       const studentDocument = await repository.requireDocument(parsed.data.studentAnswerDocumentId);
       if (studentDocument.kind !== 'student_answer') {
         throw new ValidationError(

@@ -102,3 +102,55 @@ export const QUESTION_GRADING_JSON_SCHEMA: Record<string, unknown> = {
     },
   },
 };
+
+/**
+ * JSON Schema for rubric extraction, used only when the structural parser in
+ * `rubric/parse-scheme.ts` cannot read a marking scheme's layout.
+ *
+ * `id` and `title` are absent on purpose: those are ours to assign, and asking a
+ * model to invent an identifier only creates something to reconcile later.
+ */
+export const RUBRIC_JSON_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['questions'],
+  properties: {
+    questions: {
+      type: 'array',
+      description: 'One entry per question in the marking scheme, in order.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['number', 'subject', 'prompt', 'modelAnswer', 'guidance', 'requiresDiagram', 'criteria'],
+        properties: {
+          number: { type: 'integer', description: 'Question number as printed.' },
+          subject: { type: 'string', description: 'Subject or topic, e.g. "Science".' },
+          prompt: { type: 'string', description: 'The question as set. Empty string if not supplied.' },
+          modelAnswer: { type: 'string', description: 'The model answer prose, copied as written.' },
+          guidance: {
+            type: 'array',
+            description: 'Grading guidance rules, one per entry, copied faithfully.',
+            items: { type: 'string' },
+          },
+          requiresDiagram: {
+            type: 'boolean',
+            description: 'True when marks are awarded for a diagram, graph or chart.',
+          },
+          criteria: {
+            type: 'array',
+            description: 'The markable points, in the order the scheme lists them.',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['description', 'maxMarks'],
+              properties: {
+                description: { type: 'string', description: 'The criterion, as the scheme words it.' },
+                maxMarks: { type: 'number', description: 'Marks available for this criterion.' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};

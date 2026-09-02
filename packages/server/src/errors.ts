@@ -65,6 +65,19 @@ export class ModelUnavailableError extends AppError {
   }
 }
 
+/**
+ * The provider rejected our credentials.
+ *
+ * Its own code, because it is the one model failure a retry can never fix and
+ * the one the person running the server can. It is not `model_unavailable`: the
+ * model is up, and telling someone to try again would waste their time.
+ */
+export class ModelAuthError extends AppError {
+  constructor(message: string, details: string[] = []) {
+    super('model_auth_failed', message, { status: 500, retryable: false, details });
+  }
+}
+
 /** The model responded, but never in a shape we could use — even after repair. */
 export class ModelOutputInvalidError extends AppError {
   constructor(message: string, details: string[] = []) {

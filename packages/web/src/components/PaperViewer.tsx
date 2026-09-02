@@ -5,6 +5,8 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { Annotation, Rect } from '@gradesense/shared';
 import { PdfPage } from './PdfPage.js';
 import { AnnotationOverlay } from './AnnotationOverlay.js';
+import { Card } from './ui/Card.js';
+import { MicroLabel } from './ui/misc.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -80,21 +82,27 @@ export function PaperViewer({
   }, [fileUrl]);
 
   if (error) {
-    return <div className="viewer-message error">Could not display the answer paper: {error}</div>;
+    return (
+      <Card className="viewer-message viewer-message--error">
+        Could not display the answer paper: {error}
+      </Card>
+    );
   }
 
   return (
     <div className="paper-viewer" ref={containerRef}>
-      {!pdf && <div className="viewer-message">Loading the answer paper…</div>}
+      {!pdf && <Card className="viewer-message">Loading the answer paper…</Card>}
 
       {pdf &&
         width > 0 &&
         Array.from({ length: pdf.numPages }, (_, index) => {
           const size = sizes[index];
           return (
-            <div className="pdf-page-wrapper" key={index}>
-              <div className="pdf-page-number">Page {index + 1}</div>
-              <div className="pdf-page-stack">
+            <div className="pdf-page" key={index}>
+              <div className="pdf-page__label">
+                <MicroLabel>Page {index + 1}</MicroLabel>
+              </div>
+              <div className="pdf-page__stack">
                 <PdfPage
                   document={pdf}
                   pageNumber={index + 1}

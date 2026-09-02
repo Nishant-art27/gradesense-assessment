@@ -1,4 +1,5 @@
 import type { AnchorStatus, PageText, Rect, TextRun } from '@gradesense/shared';
+import { groundRegion } from './diagram.js';
 import { normalise, tokenise, windowSimilarity } from './text-match.js';
 
 /**
@@ -218,34 +219,55 @@ export function anchorQuote(quote: string | null, pages: PageText[], pageHint?: 
 }
 
 /**
- * Clamps a model-supplied region to the page box.
+ * Turns a model-supplied region into the drawing it was pointing at.
  *
- * Used for diagram findings, where there is no text to quote. Vision models are
- * only roughly accurate at bounding boxes, so these are marked `region` and
- * carry lower confidence — the teacher is expected to nudge them, which the
- * editable-annotation feature makes a one-drag job.
+ * Bounding boxes are the least reliable thing a language model produces. Drawn
+ * as given they are visibly wrong: a box that frames most of a circuit but cuts
+ * off the ammeter, or a sliver standing beside one number on a graph's axis.
+ * Clamping them to the page made them legal without making them right.
+ *
+ * So the box is not drawn. It is used only to choose which drawing on the page
+ * the finding is about, and the rectangle that gets drawn is the one measured
+ * from that drawing's own labels — exact, and the same every run. When the box
+ * points at no drawing at all we report `unresolved` and let it become a margin
+ * note, because a rectangle across blank paper claims a precision we do not
+ * have.
  */
 export function anchorRegion(
   region: { page: number; x: number; y: number; width: number; height: number } | null,
-  pageCount: number,
+  pages: PageText[],
 ): AnchorResult {
   if (!region) return UNRESOLVED;
 
-  const page = Math.min(Math.max(0, Math.trunc(region.page)), Math.max(0, pageCount - 1));
+  const pageIndex = Math.min(Math.max(0, Math.trunc(region.page)), Math.max(0, pages.length - 1));
   const clamp01 = (n: number) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0);
 
   const x = clamp01(region.x);
   const y = clamp01(region.y);
-  const width = Math.min(1 - x, Math.max(0.01, clamp01(region.width)));
-  const height = Math.min(1 - y, Math.max(0.01, clamp01(region.height)));
+  const box: Rect = {
+    page: pageIndex,
+    x,
+    y,
+    width: Math.min(1 - x, Math.max(0, clamp01(region.width))),
+    height: Math.min(1 - y, Math.max(0, clamp01(region.height))),
+  };
 
-  if (width <= 0 || height <= 0) return UNRESOLVED;
+  const drawing = groundRegion(box, pages);
+  if (!drawing) return UNRESOLVED;
 
   return {
     status: 'region',
     similarity: 0,
     matchedText: null,
-    rects: [{ page, x, y, width, height }],
+    rects: [
+      {
+        page: drawing.page,
+        x: drawing.x,
+        y: drawing.y,
+        width: drawing.width,
+        height: drawing.height,
+      },
+    ],
   };
 }
 

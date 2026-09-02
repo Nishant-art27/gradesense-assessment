@@ -1,26 +1,32 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Annotation, FindingKind, GradingResult, GradingSummary, Rect } from '@gradesense/shared';
 import { api, ApiRequestError, type GradedPaper, type HealthInfo } from './api.js';
+import { ToastProvider, useToast } from './ToastProvider.js';
+import { AppShell, type Status } from './components/AppShell.js';
 import { PaperViewer } from './components/PaperViewer.js';
 import { RubricPanel } from './components/RubricPanel.js';
 import { AnnotationEditor } from './components/AnnotationEditor.js';
 import { LandingHero } from './components/LandingHero.js';
-
-type Status =
-  | { kind: 'idle' }
-  | { kind: 'busy'; message: string }
-  | { kind: 'error'; message: string; details: string[]; retryable: boolean };
-
-interface Toast {
-  id: number;
-  text: string;
-  tone: 'ok' | 'err';
-}
+import { SetupWizard } from './components/SetupWizard.js';
+import { Button } from './components/ui/Button.js';
+import { Card } from './components/ui/Card.js';
+import { Skeleton } from './components/ui/misc.js';
 
 export function App() {
+  return (
+    <ToastProvider>
+      <GradeSense />
+    </ToastProvider>
+  );
+}
+
+function GradeSense() {
+  const toast = useToast();
+
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [samples, setSamples] = useState<string[]>([]);
   const [history, setHistory] = useState<GradingSummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [result, setResult] = useState<GradingResult | null>(null);
@@ -30,27 +36,21 @@ export function App() {
   const [drawMode, setDrawMode] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [savingAnnotation, setSavingAnnotation] = useState(false);
-  const [toasts, setToasts] = useState<Toast[]>([]);
-
-  const toastSeq = useRef(0);
+  /** 'landing' → 'setup' (upload + rubric) → 'workspace' (a marked script). */
+  const [setupOpen, setSetupOpen] = useState(false);
 
   const selected = useMemo(
     () => annotations.find((annotation) => annotation.id === selectedId) ?? null,
     [annotations, selectedId],
   );
 
-  /** Transient confirmation, so an edit that persisted silently still shows feedback. */
-  const toast = useCallback((text: string, tone: 'ok' | 'err' = 'ok') => {
-    const id = (toastSeq.current += 1);
-    setToasts((current) => [...current, { id, text, tone }]);
-    setTimeout(() => setToasts((current) => current.filter((entry) => entry.id !== id)), 2600);
-  }, []);
-
   const refreshHistory = useCallback(async () => {
     try {
       setHistory(await api.listResults());
     } catch {
       // History is a convenience; a failure here should not block marking.
+    } finally {
+      setHistoryLoading(false);
     }
   }, []);
 
@@ -72,16 +72,13 @@ export function App() {
     })();
   }, [refreshHistory]);
 
-  const fail = useCallback(
-    (error: unknown, fallback: string) => {
-      if (error instanceof ApiRequestError) {
-        setStatus({ kind: 'error', message: error.message, details: error.details, retryable: error.retryable });
-      } else {
-        setStatus({ kind: 'error', message: fallback, details: [], retryable: false });
-      }
-    },
-    [],
-  );
+  const fail = useCallback((error: unknown, fallback: string) => {
+    if (error instanceof ApiRequestError) {
+      setStatus({ kind: 'error', message: error.message, details: error.details, retryable: error.retryable });
+    } else {
+      setStatus({ kind: 'error', message: fallback, details: [], retryable: false });
+    }
+  }, []);
 
   const applyGraded = (graded: GradedPaper) => {
     setResult(graded.result);
@@ -93,10 +90,12 @@ export function App() {
 
   /* ------------------------------- actions ------------------------------- */
 
-  const gradeDocument = async (id: string) => {
+  const gradeDocument = async (id: string, rubricId?: string | null) => {
     setStatus({ kind: 'busy', message: 'Marking against the rubric…' });
     try {
-      const graded = await api.grade(id);
+      const graded = await api.grade(id, rubricId ? { rubricId } : undefined);
+      setDocumentId(id);
+      setSetupOpen(false);
       applyGraded(graded);
       toast(`Marked: ${graded.result.totalMarks} / ${graded.result.maxMarks}`);
     } catch (error) {
@@ -142,6 +141,7 @@ export function App() {
   };
 
   const backToStart = () => {
+    setSetupOpen(false);
     setDocumentId(null);
     setResult(null);
     setAnnotations([]);
@@ -238,106 +238,63 @@ export function App() {
   const busy = status.kind === 'busy';
   const inWorkspace = documentId !== null;
 
+  const toolbar = inWorkspace ? (
+    <div className="toolbar">
+      <div className="toolbar__group">
+        <span className="toolbar__file">
+          <strong>{result?.studentAnswerFilename ?? 'Answer paper'}</strong>
+          {result && <span>· {annotations.length} annotations</span>}
+        </span>
+      </div>
+
+      {result && (
+        <div className="toolbar__group">
+          <Button
+            variant="glass"
+            size="sm"
+            active={drawMode}
+            onClick={() => setDrawMode((current) => !current)}
+            title="Drag on the paper to add your own annotation"
+          >
+            {drawMode ? 'Drag on the paper…' : '+ Add annotation'}
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => void exportPdf()}>
+            Export annotated PDF
+          </Button>
+        </div>
+      )}
+    </div>
+  ) : undefined;
+
   return (
-    <div className="app">
-      <header className="app-header">
-        <button type="button" className="brand" onClick={backToStart} title="Back to the start">
-          <span className="brand-mark">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 12.5l5 5L20 6.5" />
-            </svg>
-          </span>
-          <span className="brand-text">
-            <span className="brand-name">GradeSense</span>
-            <span className="brand-sub">explainable marking</span>
-          </span>
-        </button>
-
-        <div className="header-right">
-          {inWorkspace && (
-            <button type="button" className="btn btn-sm btn-ghost" onClick={backToStart}>
-              ← All papers
-            </button>
-          )}
-          {health && (
-            <span className={`provider-pill${health.live ? ' live' : ''}`}>
-              <span className="pulse-dot" />
-              {health.live ? `live · ${health.model}` : 'deterministic mock · no API key'}
-            </span>
-          )}
-        </div>
-      </header>
-
-      {inWorkspace && (
-        <div className="toolbar">
-          <div className="toolbar-group">
-            <span className="toolbar-file">
-              <strong>{result?.studentAnswerFilename ?? 'Answer paper'}</strong>
-              {result && <span>· {annotations.length} annotations</span>}
-            </span>
-          </div>
-
-          {result && (
-            <div className="toolbar-group">
-              <button
-                type="button"
-                className={`btn btn-sm${drawMode ? ' btn-active' : ''}`}
-                onClick={() => setDrawMode((current) => !current)}
-                title="Drag on the paper to add your own annotation"
-              >
-                {drawMode ? 'Drag on the paper…' : '+ Add annotation'}
-              </button>
-              <button type="button" className="btn btn-sm btn-primary" onClick={() => void exportPdf()}>
-                Export annotated PDF
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {status.kind === 'busy' && (
-        <div className="banner busy">
-          <span className="spinner" />
-          <span>{status.message}</span>
-        </div>
-      )}
-      {status.kind === 'error' && (
-        <div className="banner error">
-          <div>
-            <strong>{status.message}</strong>
-            {status.details.length > 0 && (
-              <ul>
-                {status.details.map((detail, index) => (
-                  <li key={index}>{detail}</li>
-                ))}
-              </ul>
-            )}
-            {status.retryable && documentId && (
-              <button
-                type="button"
-                className="btn btn-sm"
-                style={{ marginTop: 8 }}
-                onClick={() => void gradeDocument(documentId)}
-              >
-                Try again
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {!inWorkspace ? (
+    <AppShell
+      health={health}
+      status={status}
+      onHome={backToStart}
+      showBack={inWorkspace}
+      toolbar={toolbar}
+      onRetry={documentId ? () => void gradeDocument(documentId) : undefined}
+    >
+      {setupOpen && !inWorkspace ? (
+        <SetupWizard
+          onGraded={(studentId, rubricId) => gradeDocument(studentId, rubricId)}
+          onCancel={() => setSetupOpen(false)}
+          onError={fail}
+        />
+      ) : !inWorkspace ? (
         <LandingHero
           samples={samples}
           history={history}
+          historyLoading={historyLoading}
           busy={busy}
           onPick={(slug) => void loadSample(slug)}
           onOpen={(id) => void openFromHistory(id)}
           onUpload={(file) => void uploadAndGrade(file)}
+          onSetup={() => setSetupOpen(true)}
         />
       ) : (
-        <main className="layout">
-          <section className="paper-column">
+        <main className="workspace">
+          <section className="paper-col">
             <PaperViewer
               fileUrl={api.documentFileUrl(documentId)}
               annotations={annotations}
@@ -349,40 +306,34 @@ export function App() {
             />
           </section>
 
-          <aside className="side-column">
+          <aside className="rail">
             {selected ? (
-              <div className="panel">
-                <AnnotationEditor
-                  annotation={selected}
-                  saving={savingAnnotation}
-                  onChange={(patch) => void editAnnotation(selected.id, patch)}
-                  onDelete={() => void deleteAnnotation(selected.id)}
-                  onClose={() => setSelectedId(null)}
-                />
-              </div>
+              <AnnotationEditor
+                annotation={selected}
+                saving={savingAnnotation}
+                onChange={(patch) => void editAnnotation(selected.id, patch)}
+                onDelete={() => void deleteAnnotation(selected.id)}
+                onClose={() => setSelectedId(null)}
+              />
             ) : result ? (
-              <div className="panel">
-                <RubricPanel
-                  result={result}
-                  annotations={annotations}
-                  selectedId={selectedId}
-                  onSelectAnnotation={setSelectedId}
-                />
-              </div>
+              <RubricPanel
+                result={result}
+                annotations={annotations}
+                selectedId={selectedId}
+                onSelectAnnotation={setSelectedId}
+              />
             ) : (
-              <div className="panel viewer-message">Marking…</div>
+              <Card pad="md" className="panel-loading">
+                <Skeleton height={104} width={104} />
+                <Skeleton height={16} width="60%" />
+                <Skeleton height={12} width="40%" />
+                <Skeleton height={72} />
+                <Skeleton height={72} />
+              </Card>
             )}
           </aside>
         </main>
       )}
-
-      <div className="toasts" aria-live="polite">
-        {toasts.map((entry) => (
-          <div key={entry.id} className={`toast ${entry.tone}`}>
-            {entry.tone === 'ok' ? '✓' : '!'} {entry.text}
-          </div>
-        ))}
-      </div>
-    </div>
+    </AppShell>
   );
 }

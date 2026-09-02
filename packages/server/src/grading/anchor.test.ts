@@ -125,39 +125,93 @@ describe('anchoring a quote to the page', () => {
 });
 
 describe('anchoring a diagram region', () => {
-  it('accepts a sensible region and marks it approximate', () => {
-    const anchor = anchorRegion({ page: 1, x: 0.2, y: 0.3, width: 0.5, height: 0.25 }, 2);
+  /*
+   * A model's box is treated as a pointer, not as coordinates. What gets drawn
+   * is the drawing measured from its own labels, so an approximate box and a
+   * badly wrong one that still points at the right drawing produce the same,
+   * correct rectangle.
+   */
+  it('snaps an approximate box onto the whole drawing it points at', () => {
+    const anchor = anchorRegion({ page: 0, x: 0.15, y: 0.36, width: 0.7, height: 0.19 }, pages);
 
     expect(anchor.status).toBe('region');
     expect(anchor.rects).toHaveLength(1);
-    expectValidRect(anchor.rects[0]!);
+
+    const rect = anchor.rects[0]!;
+    expectValidRect(rect);
+    expect(rect.page).toBe(0);
+    // The model's box stopped at x 0.85 and cut the ammeter off; the measured
+    // one reaches it. It also reaches down past the voltmeter, which the
+    // model's box ended above.
+    expect(rect.x + rect.width).toBeGreaterThan(0.96);
+    expect(rect.y + rect.height).toBeGreaterThan(0.55);
+    // …and it stops short of the next answer rather than running over it.
+    expect(rect.y + rect.height).toBeLessThan(0.62);
   });
 
-  it('clamps a region that runs off the page', () => {
-    const anchor = anchorRegion({ page: 0, x: 0.9, y: 0.9, width: 0.8, height: 0.8 }, 2);
+  it('turns a sliver beside one axis number into the whole graph', () => {
+    // A real box returned for the economics graph: tall, 5% of the page wide,
+    // standing beside the "10" on the axis and covering none of the drawing.
+    const anchor = anchorRegion({ page: 1, x: 0.2, y: 0.3, width: 0.05, height: 0.32 }, pages);
 
     expect(anchor.status).toBe('region');
-    expectValidRect(anchor.rects[0]!);
+    const rect = anchor.rects[0]!;
+    expect(rect.page).toBe(1);
+    expect(rect.width).toBeGreaterThan(0.4);
+    expect(rect.y).toBeLessThan(0.32);
+    expect(rect.y + rect.height).toBeGreaterThan(0.52);
   });
 
-  it('clamps a page index beyond the document', () => {
-    const anchor = anchorRegion({ page: 99, x: 0.1, y: 0.1, width: 0.2, height: 0.2 }, 2);
+  it('recovers a box that missed the drawing but sits just below it', () => {
+    const anchor = anchorRegion({ page: 1, x: 0.08, y: 0.58, width: 0.8, height: 0.1 }, pages);
+
+    expect(anchor.status).toBe('region');
+    expect(anchor.rects[0]!.y).toBeLessThan(0.32);
+  });
+
+  it('refuses to draw a box that points at no drawing at all', () => {
+    // Blank paper at the foot of the page. Nothing is there to frame, so this
+    // becomes a margin note rather than a rectangle across empty space.
+    const anchor = anchorRegion({ page: 1, x: 0.05, y: 0.9, width: 0.2, height: 0.05 }, pages);
+
+    expect(anchor.status).toBe('unresolved');
+    expect(anchor.rects).toEqual([]);
+  });
+
+  it('keeps a region on the page the drawing is actually on', () => {
+    // A box claiming page 0 coordinates for the economics graph still resolves
+    // to the circuit on page 0 — the page number is the model's claim, and the
+    // measurement is ours.
+    const anchor = anchorRegion({ page: 1, x: 0.3, y: 0.4, width: 0.2, height: 0.1 }, pages);
 
     expect(anchor.rects[0]!.page).toBe(1);
   });
 
-  it('rejects a missing region', () => {
-    expect(anchorRegion(null, 2).status).toBe('unresolved');
+  it('clamps a page index beyond the document', () => {
+    const anchor = anchorRegion({ page: 99, x: 0.1, y: 0.3, width: 0.5, height: 0.2 }, pages);
+
+    expect(anchor.rects[0]!.page).toBe(pages.length - 1);
   });
 
-  it('survives nonsense coordinates', () => {
+  it('rejects a missing region', () => {
+    expect(anchorRegion(null, pages).status).toBe('unresolved');
+  });
+
+  it('survives nonsense coordinates without drawing anything', () => {
     const anchor = anchorRegion(
       { page: -5, x: Number.NaN, y: -1, width: Number.POSITIVE_INFINITY, height: 0 },
-      2,
+      pages,
     );
 
-    expect(anchor.rects).toHaveLength(1);
-    expectValidRect(anchor.rects[0]!);
+    expect(anchor.status).toBe('unresolved');
+    expect(anchor.rects).toEqual([]);
+  });
+
+  it('finds nothing to snap to on a page with no drawing', async () => {
+    const blank = (await loadAnswerFixture('blank')).document.pages;
+    const anchor = anchorRegion({ page: 0, x: 0.2, y: 0.4, width: 0.5, height: 0.2 }, blank);
+
+    expect(anchor.status).toBe('unresolved');
   });
 });
 

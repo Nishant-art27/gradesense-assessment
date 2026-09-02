@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
-import type { Annotation, FindingKind, Rect } from '@gradesense/shared';
+import type { Annotation, Rect } from '@gradesense/shared';
+import { cx } from './ui/cx.js';
 
 /**
  * The interactive annotation layer for one page.
@@ -13,14 +14,11 @@ import type { Annotation, FindingKind, Rect } from '@gradesense/shared';
  * a drag that leaves the page still tracks correctly and always ends.
  */
 
-export const KIND_LABELS: Record<FindingKind, string> = {
-  incorrect: 'Incorrect',
-  missing: 'Missing',
-  spelling: 'Spelling',
-  grammar: 'Grammar',
-  layout: 'Layout',
-  praise: 'Good',
-};
+/*
+ * Kind labels used to live here, which put a display-string map inside a
+ * canvas-drawing component and duplicated the export's copy. They are now
+ * ANNOTATION_LABELS in packages/shared, alongside the colours.
+ */
 
 type DragMode = 'move' | 'resize';
 
@@ -181,7 +179,7 @@ export function AnnotationOverlay({
   return (
     <svg
       ref={svgRef}
-      className={`annotation-overlay${drawMode ? ' drawing' : ''}`}
+      className={cx('annotation-overlay', drawMode && 'is-drawing')}
       width={width}
       height={height}
     >
@@ -206,7 +204,12 @@ export function AnnotationOverlay({
         return (
           <g
             key={annotation.id}
-            className={`annotation kind-${annotation.kind} anchor-${annotation.anchorStatus}${selected ? ' selected' : ''}`}
+            className={cx(
+              'annotation',
+              `kind-${annotation.kind}`,
+              `anchor-${annotation.anchorStatus}`,
+              selected && 'selected',
+            )}
           >
             {/* Continuation boxes for a quote that wrapped across lines. */}
             {extras
