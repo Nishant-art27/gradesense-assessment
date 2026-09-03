@@ -103,7 +103,13 @@ export function SetupWizard({
         setDraft(null);
         setRubric(null);
       }
-      toast(`${file.name} read · ${uploaded.pageCount} page${uploaded.pageCount === 1 ? '' : 's'}`);
+      toast(
+        uploaded.transcription?.status === 'pending'
+          ? `${file.name} is a scan · reading the handwriting on ${uploaded.transcription.pages.length} page${uploaded.transcription.pages.length === 1 ? '' : 's'} in the background`
+          : uploaded.transcription?.status === 'unsupported'
+            ? `${file.name} is a scan with no text layer, and the current provider cannot read images`
+            : `${file.name} read · ${uploaded.pageCount} page${uploaded.pageCount === 1 ? '' : 's'}`,
+      );
     } catch (error) {
       onError(error, `Could not read ${file.name}.`);
     } finally {
@@ -249,7 +255,7 @@ export function SetupWizard({
                   uploaded
                     ? {
                         name: uploaded.filename,
-                        meta: `${uploaded.pageCount} page${uploaded.pageCount === 1 ? '' : 's'} read`,
+                        meta: describeUpload(uploaded),
                       }
                     : undefined
                 }
@@ -446,4 +452,21 @@ function RubricReview({
       </div>
     </Card>
   );
+}
+
+/** What was read from an upload, in the words a teacher needs: pages, and whether it is a scan. */
+function describeUpload(uploaded: { pageCount: number; transcription?: { status: string; pages: number[] } }): string {
+  const pages = `${uploaded.pageCount} page${uploaded.pageCount === 1 ? '' : 's'}`;
+  switch (uploaded.transcription?.status) {
+    case 'pending':
+      return `${pages} · scanned handwriting, being read`;
+    case 'done':
+      return `${pages} · scanned handwriting, read`;
+    case 'unsupported':
+      return `${pages} · scanned, provider cannot read images`;
+    case 'failed':
+      return `${pages} · scanned, reading failed`;
+    default:
+      return `${pages} read`;
+  }
 }

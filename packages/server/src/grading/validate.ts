@@ -62,6 +62,9 @@ export interface ValidateOptions {
   markGranularity: number;
 }
 
+/** Findings with no quote and no region become margin notes; this many per question are drawn, the rest go in the notes. */
+const MAX_UNPLACEABLE_FINDINGS = 2;
+
 /** Parses raw model output. Returns readable errors for the repair prompt. */
 export function parseModelOutput(raw: unknown): ValidationFailure | { ok: true; value: ModelQuestionGrading } {
   const parsed = ModelQuestionGradingSchema.safeParse(raw);
@@ -284,7 +287,23 @@ export function validateQuestionGrading(raw: unknown, options: ValidateOptions):
    * is worse for a teacher than no annotation at all.
    */
   const keptFindings: ModelFinding[] = [];
+  let unplaceable = 0;
   for (const finding of grading.findings) {
+    /*
+     * A finding with nothing to point at — no quote, no region — can only ever
+     * be a margin note. One or two of those are useful; a column of sixteen,
+     * one per rubric point the student never reached, buries the page. The
+     * first few are kept; the rest are recorded as notes so nothing is lost,
+     * just not drawn.
+     */
+    const placeable = (finding.quote && finding.quote.trim().length > 0) || finding.region;
+    if (!placeable) {
+      unplaceable += 1;
+      if (unplaceable > MAX_UNPLACEABLE_FINDINGS) {
+        notes.push(`Also noted by the grader: ${finding.comment}`);
+        continue;
+      }
+    }
     if (finding.quote && finding.quote.trim().length > 0) {
       const anchor = anchorQuote(finding.quote, pages);
       if (anchor.status === 'unresolved') {

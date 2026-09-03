@@ -5,12 +5,14 @@ import {
   RUBRIC_SYSTEM_PROMPT,
   SCHEME_CHUNK_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
+  TRANSCRIPTION_SYSTEM_PROMPT,
   buildAnswerChunkPrompt,
   buildQuestionPaperChunkPrompt,
   buildQuestionPrompt,
   buildRepairPrompt,
   buildRubricPrompt,
   buildSchemeChunkPrompt,
+  buildTranscriptionPrompt,
   type AnswerChunkInput,
   type DocumentChunkInput,
   type GradeQuestionInput,
@@ -18,10 +20,12 @@ import {
   type ModelAttemptContext,
   type CriteriaInferenceInput,
   type ModelResponse,
+  type PageTranscriptionInput,
   type RubricExtractionInput,
 } from '../model.js';
 import {
   ANSWER_CHUNK_JSON_SCHEMA,
+  PAGE_TRANSCRIPT_JSON_SCHEMA,
   QUESTION_GRADING_JSON_SCHEMA,
   QUESTION_PAPER_CHUNK_JSON_SCHEMA,
   RUBRIC_JSON_SCHEMA,
@@ -180,10 +184,23 @@ export class AnthropicGradingModel implements GradingModel {
     );
   }
 
-  /** One text-only, schema-constrained request. Shared by the chunk-level readers. */
+  /** Reads one scanned page of handwriting. Claude sees images natively, so the grading model does this too. */
+  async transcribePage(input: PageTranscriptionInput): Promise<ModelResponse> {
+    return this.structured(
+      TRANSCRIPTION_SYSTEM_PROMPT,
+      [
+        { type: 'image', source: { type: 'base64', media_type: input.mimeType, data: input.imageBase64 } },
+        { type: 'text', text: buildTranscriptionPrompt(input) },
+      ],
+      PAGE_TRANSCRIPT_JSON_SCHEMA,
+      'transcribe this page of handwriting',
+    );
+  }
+
+  /** One schema-constrained request. Shared by the chunk-level readers and the transcriber. */
   private async structured(
     systemPrompt: string,
-    prompt: string,
+    prompt: string | Anthropic.ContentBlockParam[],
     schema: Record<string, unknown>,
     what: string,
   ): Promise<ModelResponse> {

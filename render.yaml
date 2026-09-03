@@ -1,0 +1,35 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# One web service runs the API and serves the built web app from the same
+# origin, so the client's relative /api calls need no proxy and no CORS.
+#
+# Deploy: push this file, then Render dashboard → New → Blueprint → pick the repo.
+services:
+  - type: web
+    name: gradesense
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      # mock | groq | gemini | anthropic. Mock needs no key and is the default.
+      - key: MODEL_PROVIDER
+        value: mock
+      # Fill these in the Render dashboard; sync: false keeps them out of git.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Where uploads and grading history live. On the free plan this is the
+      # instance's own disk, which is wiped on every deploy and restart. To keep
+      # history, move to a paid plan and uncomment the disk below — it mounts
+      # at this same path.
+      - key: DATA_DIR
+        value: /var/data
+    # disk:
+    #   name: gradesense-data
+    #   mountPath: /var/data
+    #   sizeGB: 1

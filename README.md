@@ -107,6 +107,48 @@ failing on the first request.
 
 ---
 
+## Deploy
+
+The API serves the built web app from the same origin, so one service is the whole
+deployment. Anything that runs a long-lived Node process works; serverless hosts
+(Vercel, Netlify functions) do not — the JSON-file store and 25 MB PDF uploads need
+a real process and a real disk.
+
+### Render (recommended)
+
+[`render.yaml`](render.yaml) describes the service. Push it, then in the Render
+dashboard choose **New → Blueprint**, pick this repository, and click **Apply**.
+The build runs `npm ci && npm run build`, the service starts with `npm start`, and
+the health check hits `/api/health`.
+
+To mark with a real model, open the service's **Environment** tab, set
+`MODEL_PROVIDER` to `groq`, `gemini` or `anthropic`, and paste the matching key.
+With nothing set it runs the deterministic mock, exactly as it does locally.
+
+On the free plan the instance sleeps after 15 minutes idle (the first request then
+takes ~30–60 s) and its disk is wiped on every deploy, so grading history resets.
+To keep it, switch to a paid instance and uncomment the `disk` block in
+`render.yaml` — `DATA_DIR` already points at its mount path.
+
+### Anywhere else (Docker)
+
+The [`Dockerfile`](Dockerfile) builds a self-contained image for Railway, Fly.io,
+or a VPS. Persist `/data` (a volume) and set the same environment variables:
+
+```bash
+docker build -t gradesense .
+docker run -p 4000:4000 -v gradesense-data:/data -e MODEL_PROVIDER=mock gradesense
+```
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `PORT` | Port the server listens on | `4000` |
+| `DATA_DIR` | Uploads and grading history | `<repo>/data` |
+| `MODEL_PROVIDER` | `mock`, `groq`, `gemini`, `anthropic` | `mock` |
+| `*_API_KEY` | Key for the chosen provider | — |
+
+---
+
 ## What to look at first
 
 | | |
@@ -362,17 +404,46 @@ npx vitest run packages/server/src/grading/pipeline.test.ts   # just the grading
 
 ---
 
+## Handwritten and scanned answer sheets
+
+A photographed or scanned answer sheet arrives as a PDF whose pages are pictures. There is no text layer, so text extraction finds nothing, and before this existed every question on such a sheet was scored as unanswered without a model ever being asked. Now:
+
+1. **Detection.** At upload, any page with no usable text layer is recorded on the document (`transcription.status: "pending"`), and the UI says the file is a scan being read.
+2. **Rendering.** Those pages are rasterised with pdf.js and `@napi-rs/canvas` to JPEGs with a 1,600-pixel long edge, about two thousand vision tokens each. The original PDF is never modified.
+3. **Transcription.** A vision model reads each page, in order, with the tail of the previous page for continuity. It is told to copy exactly what is written (misspellings, wrong values and all), to write `[Diagram N: …]` with every label for each drawing, `[unclear: guess]` for anything it cannot read, and `[struck: …]` for crossings-out. The transcript replaces the empty page text, marked `source: "transcription"`, and is stored so the work happens once per document. This starts in the background at upload and is awaited before marking.
+4. **Marking.** The grader gets the transcript as the student's answer and is told exactly what it is reading: that a transcription can be wrong, what the markers mean, to tell a transcription artefact from a student error, and to lower its confidence rather than invent content for an `[unclear]` span. Where the provider can also see the pages (Gemini, Claude), the PDF is attached and the prompt makes the image authoritative over the transcript. Marks are awarded against the marking scheme, never by similarity to the model answer.
+5. **Placement.** The transcriber also reports the box each line occupies (0–1000 of the page). Those become text runs, so a quote from the transcript is drawn beside the line it came from — right to within a line or so, and labelled approximate. If a page's boxes do not run top to bottom they are discarded and its notes fall back to the margin.
+6. **Honesty downstream.** Confidence records that the marks rest on a reading of handwriting and how many spans the transcriber flagged; approximate placements are counted as such; and a provider that cannot read images leaves the sheet's zeros flagged for review with the reason, never as a judgement of the work.
+
+Which model reads the pages depends on the provider: Gemini and Claude use their grading model, which sees images. Groq's grading model (`openai/gpt-oss-120b`) is text-only, so scans go to `qwen/qwen3.8-27b` (override with `VISION_MODEL`), which has its own rate-limit bucket. The mock provider cannot read scans and says so.
+
 ## Known limits
 
-- **Blank detection is text-only.** A question answered with *only* a diagram and no
-  prose would be read as unanswered. It is never silently zeroed — a blank question
-  always forces the review flag and says so — but a vision pre-check would be better.
+- **Blank detection is text-only on typed sheets.** A typed question answered with
+  *only* a diagram and no prose would be read as unanswered. It is never silently
+  zeroed — a blank question always forces the review flag and says so. Scanned
+  sheets do not have this problem: their pages are transcribed, drawings included.
+- **Annotations on scanned pages are placed to the line, not the word.** Positions
+  come from the vision model's estimate of where each transcribed line sits, so a
+  box marks the right line (approximately) rather than underlining the exact words,
+  and is labelled approximate. A page whose estimates are unusable falls back to
+  margin notes. The marks and evidence quotes are unaffected either way.
+- **On Groq, the grader reads the transcript, not the page.** Groq's marking model is
+  text-only, so diagrams on a scanned sheet are judged from the transcriber's
+  description and labels, with lowered confidence where the drawing itself would
+  settle a point. Gemini and Claude see the pages directly, with the transcript as
+  an aid.
+- **On an 8,000-token-per-minute tier, long answers are graded in passages.** A
+  single answer that will not fit one request alongside its rubric is split at its
+  sub-parts and each rubric point takes the best-supported award; the result says
+  so. Raise `MODEL_REQUEST_TOKEN_LIMIT` on a paid tier and this stops happening.
 - **Diagram regions are approximate.** A vision model's bounding boxes are rough, so
   these are marked `region`, penalised in confidence, and expected to be nudged. That
   is one drag, which is what makes editable annotations the right answer here.
-- **Question segmentation depends on "Answer N" headings.** A sheet without them falls
-  back to giving every question the whole document and records that the boundaries are
-  approximate, which lowers confidence.
+- **Question segmentation prefers "Answer N" / "Q31" headings.** A sheet without them
+  is read in pieces by the model to work out which text answers which question; if
+  that also fails, every question gets the whole document and the result records that
+  the boundaries are approximate, which lowers confidence.
 - **Structural rubric parsing is layout-dependent.** It reads the provided scheme
   exactly, and the language model is the fallback for a layout it does not
   recognise — but that fallback needs an API key. Without one, an unusual scheme

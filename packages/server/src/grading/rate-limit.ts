@@ -110,6 +110,16 @@ export class TokenRateLimiter {
     }
   }
 
+  /**
+   * Records what the provider said about its window, outside a scheduled task.
+   * Used after a refusal: the server's "none left, resets in N seconds" is the
+   * truest thing known about the window, and every request after it should wait.
+   */
+  noteServerState(remainingTokens: number, resetInMs: number): void {
+    const at = this.now();
+    this.server = { at, remaining: Math.max(0, remainingTokens), resetAt: at + Math.max(0, resetInMs) };
+  }
+
   /** Tokens charged inside the current window. Exposed for tests and the health endpoint. */
   usedInWindow(): number {
     this.prune();

@@ -20,7 +20,7 @@ import { cx } from './ui/cx.js';
 
 const ANCHOR_NOTES: Record<string, string> = {
   fuzzy: 'Matched approximately — the answer text differs slightly from the quote.',
-  region: 'Placed from an approximate diagram region. Drag the box if it is not quite right.',
+  region: 'Placed approximately — from a diagram region, or from where a transcribed line sits on a scanned page. Drag the box if it is not quite right.',
   unresolved:
     'This could not be placed on the page, so it is shown as a margin note. Drag it where it belongs.',
 };

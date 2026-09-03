@@ -26,6 +26,34 @@ export interface GradeQuestionInput {
    * caption and labels rather than from hardcoded coordinates.
    */
   pages: PageText[];
+  /**
+   * Where `answerText` came from. A transcription of scanned handwriting is
+   * read differently from a PDF text layer: it may contain reading errors and
+   * carries markers for drawings and illegible spans, and the prompt says so.
+   * Absent means text-layer.
+   */
+  answerSource?: 'text-layer' | 'transcription';
+  /** What the transcriber reported about the pages, when there was one. */
+  transcriptionNotes?: {
+    legibility: 'good' | 'fair' | 'poor' | null;
+    unclear: string[];
+  };
+}
+
+/** One rendered page of a scanned document, to be read by a vision model. */
+export interface PageTranscriptionInput {
+  imageBase64: string;
+  mimeType: 'image/jpeg' | 'image/png';
+  /** Zero-based. */
+  pageIndex: number;
+  pageCount: number;
+  /** The last lines of the previous page's transcript, so a sentence or working that runs over the page break is continued rather than restarted. */
+  previousPageTail: string | null;
+  /**
+   * `diagrams` asks only for the drawings on a page whose first reading placed
+   * [diagram N] markers but described nothing. Absent means a full transcript.
+   */
+  focus?: 'full' | 'diagrams';
 }
 
 export interface ModelAttemptContext {
@@ -105,6 +133,12 @@ export interface GradingModel {
    * to every question.
    */
   attributeAnswerChunk?(input: AnswerChunkInput): Promise<ModelResponse>;
+  /**
+   * Reads one scanned page of handwriting from its image. Optional: only a
+   * provider with a vision-capable model can offer it, and the pipeline says so
+   * plainly when a scan is graded by a provider that cannot.
+   */
+  transcribePage?(input: PageTranscriptionInput): Promise<ModelResponse>;
 }
 
 /** System prompt for rubric extraction. Separate job, separate instructions. */
@@ -138,24 +172,32 @@ export const SYSTEM_PROMPT = `You are an experienced school examiner marking one
 
 How to mark:
 - Award marks criterion by criterion, using exactly the criterion ids you are given. Never invent a criterion id and never omit one.
-- Never award more than a criterion's stated maximum, and never award less than zero. Partial credit is allowed where the marking guidance permits it.
-- Mark the quality of the student's reasoning, NOT its similarity to the model answer. A student who argues the opposite case, or uses different wording, or lays a diagram out differently, earns full marks when the reasoning and the relationships are sound. Treat the model answer as one acceptable answer among many.
+- Never award more than a criterion's stated maximum, and never award less than zero. Partial credit is allowed where the marking guidance permits it: a correct method with an arithmetic slip, a derivation that reaches the penultimate step, a diagram with one label missing.
+- Mark against the MARKING SCHEME, not against similarity to the model answer. A student who argues the opposite case, or uses different wording or notation, or lays a diagram out differently, or takes a different valid route, earns full marks when the physics, the reasoning and the relationships are sound. Treat the model answer as one acceptable answer among many.
 - Apply the question's marking guidance literally. It tells you which differences are acceptable and which are substantive errors.
-- Judge spelling, grammar and presentation only where a criterion actually asks for it. An OCR-style misspelling of a technical word is not a subject-matter error: if the meaning is clear, give the content credit and raise the spelling separately as a finding.
+- For each criterion, first establish what the student actually wrote for it — concept, equation, calculation, units, diagram — and only then decide the marks.
+- Judge spelling, grammar and presentation only where a criterion actually asks for it. A misspelt technical word whose meaning is clear ("seperated", "feild") is not a subject-matter error: give the content credit and raise the spelling separately as a finding.
+
+Reading the answer — it may be handwritten:
+- The text you are given may be a transcription of handwriting, or OCR, and may be imperfect or incomplete. Where the page image is attached, the IMAGE is authoritative: read equations, symbols, subscripts, units and diagram labels from it where you can.
+- Distinguish a transcription error from a student error: "pieo" for πε₀, "muO" for μ₀, "^" for a superscript or a run-on line are artefacts, not physics. Do not penalise a student for the quality of their handwriting, or for a transcriber's reading, unless the scientific meaning is genuinely wrong or absent.
+- Do not invent content: if a step is not there, it is not there. If a criterion turns on a span marked [unclear], decide on the balance of what is legible, say so in your reasoning, and lower selfConfidence. Ignore text marked [struck] as the student intended.
 
 Evidence rules — these are strict:
-- Every judgement you make about what the student wrote must quote the student verbatim in "evidenceQuote". Copy the characters exactly as they appear, including any misspellings. Do not paraphrase, do not tidy, do not translate.
-- Quote enough to be unambiguous, ideally a full clause, and at most about 25 words.
+- Every judgement you make about what the student wrote must quote the student verbatim in "evidenceQuote", copied from the answer text you were given (the transcript, when that is what you have). Copy the characters exactly as they appear, including any misspellings and transcription markers. Do not paraphrase, do not tidy, do not translate.
+- Quote ONE contiguous span, enough to be unambiguous, ideally a full clause, and at most about 25 words. Never join separate fragments with "..." or "…" — pick the single span that best supports the judgement.
 - If a criterion is unmet because the student never addressed it, set "evidenceQuote" to null. Do not quote unrelated text to fill the field.
 
 Findings drive the annotations a teacher sees drawn on the page:
 - Raise one finding for each specific problem worth marking on the paper, and use "quote" to give the exact student text it sits on.
-- Use "region" ONLY when there is genuinely no text to quote, such as a mislabelled axis or a component drawn in the wrong place in a diagram. Give it as fractions of the page: x and y are the top-left corner, 0,0 is the top-left of the page, 1,1 is the bottom-right.
+- A finding is a note on something the student WROTE. For a point the student never addressed, say so in that criterion's "reasoning" and leave it there — do not raise a "missing" finding for it unless there is a specific place in the student's work where it belongs, in which case quote the text at that place. Never raise findings for the points of an OR alternative the student did not attempt.
+- At most one finding per criterion for omissions, and no more than about six findings in total for a question: pick the ones a teacher would actually write on the page.
+- Use "region" ONLY when there is genuinely no text to quote, such as a mislabelled axis or a component drawn in the wrong place in a diagram you can see. Give it as fractions of the page: x and y are the top-left corner, 0,0 is the top-left of the page, 1,1 is the bottom-right.
 - Choose "kind" honestly: "incorrect" for wrong reasoning, "missing" for an omission, "spelling" or "grammar" for surface errors, "layout" for alignment and presentation problems, "praise" for something notably well done.
 - "correction" is what the student should have written. Make it specific enough to learn from.
 
 Confidence:
-- "selfConfidence" is your genuine certainty about this question's marks, from 0 to 1. Use a low value when the answer is ambiguous, hard to read, or when you are unsure whether a diagram shows what the student claims. Saying you are unsure is always better than guessing confidently.`;
+- "selfConfidence" is your genuine certainty about this question's marks, from 0 to 1. Use a low value when the answer is ambiguous, hard to read, rests on an [unclear] span, or when you are unsure whether a diagram shows what the student claims. Saying you are unsure is always better than guessing confidently.`;
 
 function formatCriteria(question: Question): string {
   return question.criteria
@@ -185,27 +227,51 @@ function formatCriteriaProvenance(question: Question): string {
   return 'NOTE: the marking scheme provided no criteria for this question, so the criteria above were inferred from the model answer. They are a reasonable reading, not the instructor\'s own words — mark the substance they describe rather than their exact phrasing, and stay within the stated marks.';
 }
 
-/** The part of the prompt that varies per question. Sits after the cache breakpoint. */
+/**
+ * The part of the prompt that varies per question. Sits after the cache breakpoint.
+ *
+ * What the model can actually look at is said plainly, because it changes how
+ * the answer must be read. There are three situations:
+ *
+ *  - text from the PDF's own text layer, with or without the sheet attached;
+ *  - a transcription of scanned handwriting, with the sheet attached, where the
+ *    image is authoritative and the transcript is an aid;
+ *  - a transcription alone, for a provider that cannot see images, where the
+ *    grader is told exactly what the markers mean and to lower its confidence
+ *    on anything the transcriber could not read.
+ *
+ * Telling a model that a PDF is attached when none is invites it to describe a
+ * drawing it cannot see and award marks for it — a confident, unfalsifiable
+ * wrong mark, which is the failure this whole pipeline exists to prevent. So the
+ * note follows what was really sent.
+ */
 export function buildQuestionPrompt(input: GradeQuestionInput): string {
   const { question, answerText } = input;
   const seesPage = input.pdfBase64 !== null;
+  const transcribed = input.answerSource === 'transcription';
 
-  /*
-   * What the model can actually look at, said plainly.
-   *
-   * Not every provider can be handed the answer sheet: Groq takes text only.
-   * Telling a model that a PDF is attached when none is invites it to describe a
-   * drawing it cannot see and award marks for it — a confident, unfalsifiable
-   * wrong mark, which is the failure this whole pipeline exists to prevent. So
-   * the note follows what was really sent.
-   */
-  const diagramNote = question.requiresDiagram
-    ? seesPage
-      ? `\nThis question awards marks for a diagram. The attached PDF is the student's complete answer sheet — look at the drawing under "Answer ${question.number}" to judge the diagram criteria. Do not assume the diagram matches what the prose claims; check it.`
-      : `\nThis question awards marks for a diagram, and you CANNOT see it: you have only the text extracted from the answer sheet, which includes the drawing's labels but not the drawing. Judge the diagram criteria only from what the text and labels actually establish. Where the drawing itself would settle it, say so in your reasoning, mark the criterion on the evidence you do have, and give a low selfConfidence. Never describe a drawing you have not seen.`
-    : seesPage
-      ? `\nThe attached PDF is the student's complete answer sheet, in case you need to see the layout of this answer.`
-      : `\nYou have the text extracted from the student's answer sheet, not the sheet itself, so its layout is not visible to you.`;
+  let readingNote: string;
+  if (transcribed && seesPage) {
+    readingNote = `\nThe student's answer below is a TRANSCRIPTION of scanned handwriting, made by a vision model as an aid. The attached PDF is the scanned answer sheet itself and is authoritative: read the pages under "Q${question.number}" directly, and wherever the transcript and the page disagree, believe the page. Use the transcript for quoting evidence.${
+      question.requiresDiagram
+        ? ' This question awards marks for a diagram: judge it from the drawing on the page, not from the transcript\'s description of it, and do not assume the diagram matches what the prose claims.'
+        : ''
+    }`;
+  } else if (transcribed) {
+    readingNote = `\nThe student's answer below is a TRANSCRIPTION of scanned handwriting, made by a vision model that looked at the page. You CANNOT see the page yourself: you have only this transcript, which may contain reading errors and may be incomplete. Its markers mean: [Diagram N: …] is a description of a drawing with the labels written on it; [unclear: …] is the transcriber's best guess at something it could not read; [struck: …] is text the student crossed out.${
+      question.requiresDiagram
+        ? ' This question awards marks for a diagram, and you have only its description: judge the diagram criteria from what the description and labels actually establish. Where seeing the drawing would settle it, say so in your reasoning, mark on the evidence you do have, and give a low selfConfidence.'
+        : ''
+    } Never describe a drawing you have not seen, and never award a mark for content that is not in the transcript.${formatTranscriptionNotes(input)}`;
+  } else {
+    readingNote = question.requiresDiagram
+      ? seesPage
+        ? `\nThis question awards marks for a diagram. The attached PDF is the student's complete answer sheet — look at the drawing under "Answer ${question.number}" to judge the diagram criteria. Do not assume the diagram matches what the prose claims; check it.`
+        : `\nThis question awards marks for a diagram, and you CANNOT see it: you have only the text extracted from the answer sheet, which includes the drawing's labels but not the drawing. Judge the diagram criteria only from what the text and labels actually establish. Where the drawing itself would settle it, say so in your reasoning, mark the criterion on the evidence you do have, and give a low selfConfidence. Never describe a drawing you have not seen.`
+      : seesPage
+        ? `\nThe attached PDF is the student's complete answer sheet, in case you need to see the layout of this answer.`
+        : `\nYou have the text extracted from the student's answer sheet, not the sheet itself, so its layout is not visible to you.`;
+  }
 
   return `Mark question ${question.number} (${question.subject}), worth ${question.maxMarks} marks in total.
 
@@ -226,9 +292,24 @@ THE STUDENT'S ANSWER TO QUESTION ${question.number} — quote from this text onl
 """
 ${answerText.length > 0 ? answerText : '(the student wrote nothing for this question)'}
 """
-${diagramNote}
+${readingNote}
 
 Return one judgement for every criterion id listed above, plus findings for the problems worth drawing on the page.`;
+}
+
+/** What the transcriber said about legibility and the spans it could not read. */
+function formatTranscriptionNotes(input: GradeQuestionInput): string {
+  const notes = input.transcriptionNotes;
+  if (!notes) return '';
+  const parts: string[] = [];
+  if (notes.legibility) parts.push(`The transcriber rated the handwriting's legibility as "${notes.legibility}".`);
+  if (notes.unclear.length > 0) {
+    const shown = notes.unclear.slice(0, 12).map((span) => `"${span}"`).join(', ');
+    parts.push(
+      `It could not read these spans with confidence (its best guesses): ${shown}${notes.unclear.length > 12 ? ', …' : ''}. Treat any criterion that rests on one of them as uncertain.`,
+    );
+  }
+  return parts.length > 0 ? `\n${parts.join(' ')}` : '';
 }
 
 /** How much of the previous response a repair prompt quotes back by default. */
@@ -380,4 +461,33 @@ ${input.chunk.text}
 """
 
 Which of the questions is the student answering in this excerpt, and where does each answer begin?`;
+}
+
+/* ------------------------------ page transcription ------------------------------ */
+
+export const TRANSCRIPTION_SYSTEM_PROMPT = `You transcribe scanned pages of handwritten examination answers for an examiner who cannot see the page. Your transcript is the only thing the examiner will read, so it must be complete, exact and honest about what you could not read.
+
+Rules:
+- Return the page as its written lines, in reading order, one entry per line. Copy every word, number, symbol and equation exactly as the student wrote it — including misspellings, wrong formulas, wrong values and units. Never correct, complete, tidy or improve anything. Never add content that is not on the page.
+- Give every line the box it occupies on the page as integers from 0 to 1000: top and bottom are measured down from the top edge, left and right across from the left edge, so the top-left corner of the page is (0, 0) and the bottom-right is (1000, 1000). Boxes are used to place the examiner's notes beside the right line, so they must follow the page from top to bottom.
+- Write equations in plain text as written: keep the student's ^, /, sqrt, fractions and subscripts as they appear (write a_1 or a1 as the student did). Use Greek letter names or symbols consistently (θ or theta, μ0 or mu0) following how the student wrote them.
+- Keep the student's own headings and question labels exactly ("Q31. (a)", "Ans 3", "(b)", "(ii)"), each on its own line, because they are used to match answers to questions.
+- Where a word or symbol is genuinely unreadable, write [unclear: your best guess] in place and list the guess in "unclear". Do not silently guess.
+- Where the student crossed something out, write [struck: the text] in place and list it in "struck". Do not omit it.
+- Where there is a drawing, graph, circuit, ray diagram or figure, make its line "[diagram N]" with the box the drawing occupies, AND add an entry with the same N to "diagrams" with that box: what it shows, every arrow and its direction, every axis, ray, component and shape, and every label or value written on or beside it, exactly as written. Every [diagram N] line must have its entry in "diagrams"; a marker without a description loses the drawing. Describe; do not judge whether it is correct.
+- Text written between lines, in margins, or as later insertions belongs where the student intended it; include it at that point.
+- Ignore printed page furniture (page numbers, ruled lines, roll-number boxes) unless the student wrote in it.
+- Report the question numbers whose headings appear on the page, and rate the legibility of the handwriting honestly.`;
+
+export function buildTranscriptionPrompt(input: PageTranscriptionInput): string {
+  if (input.focus === 'diagrams') {
+    return `Page ${input.pageIndex + 1} of ${input.pageCount} of a scanned handwritten answer book. An earlier reading of this page marked where its drawings are but did not describe them.
+
+Describe EVERY drawing, graph, circuit, ray diagram or figure on this page, numbered [diagram 1], [diagram 2], … in reading order, in "diagrams", each with the box it occupies (0–1000 from the top-left): what each shows, every arrow and its direction, every axis, ray, component and shape, and every label or value written on or beside it, exactly as written. For "lines", return only the marker lines ("[diagram 1]") with their boxes. Leave "unclear" and "struck" empty unless a label is unreadable or crossed out.`;
+  }
+  const continuity = input.previousPageTail
+    ? `\nThe previous page ended with:\n"""\n${input.previousPageTail}\n"""\nIf this page continues that working or sentence, continue it without repeating it.\n`
+    : '';
+  return `Page ${input.pageIndex + 1} of ${input.pageCount} of a scanned handwritten answer book.${continuity}
+Transcribe this page completely and exactly, following the rules. Return the transcript, the diagram descriptions, the unclear and struck spans, the question numbers whose headings appear, and the legibility rating.`;
 }

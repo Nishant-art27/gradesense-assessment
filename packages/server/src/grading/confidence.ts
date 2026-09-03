@@ -32,6 +32,13 @@ export interface ConfidenceInput {
   unresolvedAnchors: number;
   /** Findings placed from a model-supplied region rather than a quote. */
   regionAnchors: number;
+  /**
+   * True when the answer text is a vision model's transcription of scanned
+   * handwriting rather than the PDF's own text layer. Absent means text-layer.
+   */
+  transcribed?: boolean;
+  /** Spans the transcriber could not read with confidence, for this document. */
+  unclearSpans?: number;
 }
 
 export interface ConfidenceResult {
@@ -97,7 +104,20 @@ export function computeConfidence(input: ConfidenceInput): ConfidenceResult {
     factors.push('The answer sheet had no question headings, so the answer boundaries are approximate.');
   }
 
-  if (input.unresolvedAnchors > 0) {
+  if (input.transcribed) {
+    // A reading of handwriting is one step removed from the handwriting. The
+    // penalty is small when the transcriber read everything and grows with the
+    // spans it flagged, because those are where a mark can rest on a guess.
+    const unclear = input.unclearSpans ?? 0;
+    value -= 0.05 + Math.min(0.2, unclear * 0.03);
+    factors.push(
+      unclear > 0
+        ? `The answer was transcribed from scanned handwriting, and the transcriber flagged ${unclear} span${unclear === 1 ? '' : 's'} it could not read with confidence.`
+        : 'The answer was transcribed from scanned handwriting by a vision model; annotations are shown as margin notes.',
+    );
+  } else if (input.unresolvedAnchors > 0) {
+    // On a transcribed page every annotation is a margin note by design, which
+    // is covered by the factor above rather than counted again here.
     value -= Math.min(0.15, input.unresolvedAnchors * 0.04);
     factors.push(
       `${input.unresolvedAnchors} annotation${input.unresolvedAnchors === 1 ? '' : 's'} could not be placed on the page and became margin notes.`,

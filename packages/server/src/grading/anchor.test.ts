@@ -231,3 +231,55 @@ describe('margin notes', () => {
     }
   });
 });
+
+
+describe('quotes on a transcribed page', () => {
+  const transcribed = {
+    index: 2,
+    width: 595,
+    height: 842,
+    text: 'Q31. (a)\nE = (1/4 pieo). 2qa/ (r^2+a^2)^(3/2)\nFor a far off point r >> a, so it is nearly r^3',
+    runs: [],
+    source: 'transcription' as const,
+  };
+
+  it('verifies a quote found in the text even though there is nothing to draw', () => {
+    const result = anchorQuote('E = (1/4 pieo). 2qa/ (r^2+a^2)^(3/2)', [transcribed]);
+    expect(result.status).toBe('exact');
+    expect(result.matchedText).toContain('2qa/ (r^2+a^2)^(3/2');
+    expect(result.rects).toEqual([]);
+  });
+
+  it('still tolerates a transcription-sized difference', () => {
+    const result = anchorQuote('For a far off point r >> a, so it is nearlly r^3', [transcribed]);
+    expect(['exact', 'fuzzy']).toContain(result.status);
+    expect(result.rects).toEqual([]);
+  });
+
+  it('still reports a quote that is genuinely absent', () => {
+    expect(anchorQuote('the torque is zero because p is parallel to E', [transcribed]).status).toBe('unresolved');
+  });
+});
+
+
+describe('quotes on a transcribed page with line positions', () => {
+  it('draws the box of the line the quote came from, and calls the position approximate', () => {
+    const page: PageText = {
+      index: 1,
+      width: 595,
+      height: 842,
+      text: 'Q31. (a)\nTorque, t = PE sinθ\nt = q (b-a) x 2 x sin90 = 2q (b-a) Nm',
+      runs: [
+        { text: 'Q31. (a)', start: 0, end: 8, rect: { page: 1, x: 0.1, y: 0.05, width: 0.2, height: 0.03 } },
+        { text: 'Torque, t = PE sinθ', start: 9, end: 28, rect: { page: 1, x: 0.1, y: 0.5, width: 0.4, height: 0.03 } },
+        { text: 't = q (b-a) x 2 x sin90 = 2q (b-a) Nm', start: 29, end: 66, rect: { page: 1, x: 0.1, y: 0.8, width: 0.7, height: 0.03 } },
+      ],
+      source: 'transcription',
+    };
+    const result = anchorQuote('t = q (b-a) x 2 x sin90 = 2q (b-a) Nm', [page]);
+    expect(result.status).toBe('exact');
+    expect(result.approximatePosition).toBe(true);
+    expect(result.rects).toHaveLength(1);
+    expect(result.rects[0]!.y).toBeCloseTo(0.8);
+  });
+});

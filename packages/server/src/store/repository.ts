@@ -46,6 +46,8 @@ const EMPTY_DB: DatabaseShape = { version: 1, documents: {}, results: {}, annota
 
 export interface Repository {
   saveDocument(document: IngestedDocument, bytes: Buffer): Promise<void>;
+  /** Replaces a stored document's metadata and page text. The PDF bytes are never rewritten. */
+  updateDocument(document: IngestedDocument): Promise<void>;
   getDocument(id: string): Promise<IngestedDocument | null>;
   requireDocument(id: string): Promise<IngestedDocument>;
   getDocumentBytes(id: string): Promise<Buffer>;
@@ -133,6 +135,13 @@ export class JsonFileRepository implements Repository {
     // Written once, then treated as immutable for the lifetime of the document.
     await fs.writeFile(path.join(this.uploadsDir, `${document.id}.pdf`), bytes);
     await this.mutate((db) => {
+      db.documents[document.id] = document;
+    });
+  }
+
+  async updateDocument(document: IngestedDocument): Promise<void> {
+    await this.mutate((db) => {
+      if (!db.documents[document.id]) throw new NotFoundError(`No document with id "${document.id}".`);
       db.documents[document.id] = document;
     });
   }

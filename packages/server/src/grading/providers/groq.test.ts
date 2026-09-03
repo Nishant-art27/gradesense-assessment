@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { CRITERIA_JSON_SCHEMA } from '../../rubric/infer-criteria.js';
-import { buildQuestionPrompt } from '../model.js';
+import { SYSTEM_PROMPT, buildQuestionPrompt } from '../model.js';
 import {
   ANSWER_CHUNK_JSON_SCHEMA,
+  PAGE_TRANSCRIPT_JSON_SCHEMA,
   QUESTION_GRADING_JSON_SCHEMA,
   QUESTION_PAPER_CHUNK_JSON_SCHEMA,
   RUBRIC_JSON_SCHEMA,
@@ -56,6 +57,7 @@ const SCHEMAS = [
   ['question paper chunk', QUESTION_PAPER_CHUNK_JSON_SCHEMA],
   ['marking scheme chunk', SCHEME_CHUNK_JSON_SCHEMA],
   ['answer sheet chunk', ANSWER_CHUNK_JSON_SCHEMA],
+  ['page transcript', PAGE_TRANSCRIPT_JSON_SCHEMA],
 ] as const;
 
 describe('the schemas Groq is sent, under strict mode', () => {
@@ -135,6 +137,46 @@ describe('what the grader tells the model it can see', () => {
     expect(prompt).not.toMatch(/attached PDF/i);
     expect(prompt).toMatch(/not the sheet itself/i);
   });
+
+  /*
+   * A scanned sheet reaches a text-only model as a vision model's transcript.
+   * The grader has to know that — a transcript can be wrong where the student
+   * was right — and has to know what the markers in it mean.
+   */
+  it('explains a transcript and its markers to a model that cannot see the page', () => {
+    const prompt = buildQuestionPrompt({
+      ...base,
+      answerText: 'Q1\n[Diagram 1: a loop with a cell and a bulb. Labels: cell | bulb]\nA circuit is a [unclear: closed] path.',
+      answerSource: 'transcription',
+      transcriptionNotes: { legibility: 'fair', unclear: ['closed'] },
+    });
+
+    expect(prompt).toMatch(/TRANSCRIPTION of scanned handwriting/);
+    expect(prompt).toMatch(/CANNOT see the page/);
+    expect(prompt).toMatch(/\[Diagram N: …\]/);
+    expect(prompt).toMatch(/\[unclear: …\]/);
+    expect(prompt).toMatch(/\[struck: …\]/);
+    expect(prompt).toMatch(/legibility as "fair"/);
+    expect(prompt).toMatch(/"closed"/);
+    expect(prompt).toMatch(/Never describe a drawing you have not seen/i);
+    expect(prompt).not.toMatch(/attached PDF/i);
+  });
+
+  it('makes the page image authoritative over the transcript when both are sent', () => {
+    const prompt = buildQuestionPrompt({ ...base, pdfBase64: 'JVBERi0=', answerSource: 'transcription' });
+
+    expect(prompt).toMatch(/attached PDF is the scanned answer sheet itself and is authoritative/);
+    expect(prompt).toMatch(/believe the page/);
+    expect(prompt).not.toMatch(/CANNOT see/);
+  });
+
+  it('tells the examiner how to read handwriting in every request', () => {
+    expect(SYSTEM_PROMPT).toMatch(/IMAGE is authoritative/);
+    expect(SYSTEM_PROMPT).toMatch(/Distinguish a transcription error from a student error/);
+    expect(SYSTEM_PROMPT).toMatch(/Do not invent content/);
+    expect(SYSTEM_PROMPT).toMatch(/Mark against the MARKING SCHEME, not against similarity/);
+    expect(SYSTEM_PROMPT).toMatch(/Do not penalise a student for the quality of their handwriting/);
+  });
 });
 
 describe('the Groq provider', () => {
@@ -150,5 +192,29 @@ describe('the Groq provider', () => {
 
     expect(typeof model.extractRubric).toBe('function');
     expect(typeof model.inferCriteria).toBe('function');
+  });
+
+  it('reads scanned pages only when a vision model is configured', () => {
+    const withVision = new GroqGradingModel('openai/gpt-oss-120b', 'test-key', undefined, undefined, 'qwen/qwen3.8-27b');
+    const without = new GroqGradingModel('openai/gpt-oss-120b', 'test-key', undefined, undefined, null);
+
+    expect(typeof withVision.transcribePage).toBe('function');
+    expect(withVision.visionModelName).toBe('qwen/qwen3.8-27b');
+    expect(without.transcribePage).toBeUndefined();
+  });
+});
+
+describe('how long Groq asks us to wait after a refusal', () => {
+  it('reads retry-after in seconds, from either header shape', async () => {
+    const { retryAfterMs } = await import('./groq.js');
+    expect(retryAfterMs({ headers: new Headers({ 'retry-after': '23' }) })).toBe(23_000);
+    expect(retryAfterMs({ headers: { 'retry-after': '7.5' } })).toBe(7_500);
+  });
+
+  it('falls back to the token window reset, and to null when Groq says nothing', async () => {
+    const { retryAfterMs } = await import('./groq.js');
+    expect(retryAfterMs({ headers: new Headers({ 'x-ratelimit-reset-tokens': '2m3.5s' }) })).toBe(123_500);
+    expect(retryAfterMs({ headers: new Headers() })).toBeNull();
+    expect(retryAfterMs({})).toBeNull();
   });
 });

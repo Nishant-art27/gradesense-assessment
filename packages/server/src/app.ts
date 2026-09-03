@@ -27,7 +27,9 @@ import { runGrading } from './grading/pipeline.js';
 import type { GradingModel } from './grading/model.js';
 import { createGradingModel } from './grading/provider-factory.js';
 import { extractPdf, looksLikePdf } from './ingest/pdf.js';
+import { TranscriptionQueue, hasPositionedTranscript, needsTranscription, pagesNeedingTranscription } from './ingest/transcribe.js';
 import { loadRubric } from './rubric-source.js';
+import { asModelFailure } from './grading/providers/transient.js';
 import { extractRubric } from './rubric/extract.js';
 import { JsonFileRepository, type Repository } from './store/repository.js';
 
@@ -35,6 +37,13 @@ export interface AppDependencies {
   repository: Repository;
   /** Injectable so tests can substitute a misbehaving provider. */
   model?: GradingModel;
+  /**
+   * Directory holding the built web app. When set, the API serves it from the
+   * same origin, which is what makes the client's relative `/api` calls work in
+   * production without a proxy in front. Left unset in development, where Vite
+   * serves the app and proxies to us, and in tests.
+   */
+  webDist?: string;
 }
 
 /** Express 4 does not forward rejected promises, so every async route goes through this. */
@@ -49,6 +58,20 @@ function asyncHandler(
 export function createApp(dependencies: AppDependencies): express.Express {
   const { repository } = dependencies;
   const model = dependencies.model ?? createGradingModel();
+
+  /*
+   * Scanned uploads are read by a vision model once, in the background, starting
+   * at upload so the work overlaps the teacher's review of the rubric. Grading
+   * and rubric extraction wait for that reading (or run it) before they use a
+   * document, so a scan is never marked as a sheet of blank pages.
+   */
+  const transcriptions = new TranscriptionQueue({
+    model,
+    repository,
+    maxAttempts: config.grading.maxModelAttempts,
+    retryBaseDelayMs: config.grading.retryBaseDelayMs,
+    log: (message) => console.log(message),
+  });
 
   const app = express();
   app.use(cors());
@@ -103,8 +126,17 @@ export function createApp(dependencies: AppDependencies): express.Express {
       }
 
       const filename = sanitiseFilename(String(request.query.filename ?? 'upload.pdf'));
-      const document = await ingest(bytes, kind as DocumentKind, filename);
+      let document = markScanned(await ingest(bytes, kind as DocumentKind, filename), transcriptions.supported, model.providerName);
+
+      // The same scan uploaded again is the same handwriting. Its transcript
+      // already exists, so it is reused rather than read — and paid for — twice.
+      const previous = await findTranscribedTwin(document);
+      if (previous) {
+        document = { ...document, pages: previous.pages, fullText: previous.fullText, transcription: previous.transcription };
+      }
       await repository.saveDocument(document, bytes);
+
+      if (document.transcription?.status === 'pending') transcriptions.startInBackground(document, bytes);
 
       response.status(201).json(summarise(document));
     }),
@@ -209,11 +241,11 @@ export function createApp(dependencies: AppDependencies): express.Express {
         throw new ValidationError('"modelAnswerDocumentId" is required to read a rubric.');
       }
 
-      const modelAnswer = await repository.requireDocument(modelAnswerId);
+      const modelAnswer = await readable(await repository.requireDocument(modelAnswerId));
       const questionPaperId = request.body?.questionPaperDocumentId;
       const questionPaper =
         typeof questionPaperId === 'string' && questionPaperId.length > 0
-          ? await repository.requireDocument(questionPaperId)
+          ? await readable(await repository.requireDocument(questionPaperId))
           : null;
 
       const draft = await extractRubric({ modelAnswer, questionPaper, model });
@@ -274,13 +306,19 @@ export function createApp(dependencies: AppDependencies): express.Express {
       const rubric = parsed.data.rubricId
         ? await repository.requireRubric(parsed.data.rubricId)
         : await loadRubric();
-      const studentDocument = await repository.requireDocument(parsed.data.studentAnswerDocumentId);
-      if (studentDocument.kind !== 'student_answer') {
-        throw new ValidationError(
-          `Document "${studentDocument.id}" is a ${studentDocument.kind}, not a student answer.`,
-        );
+      const stored = await repository.requireDocument(parsed.data.studentAnswerDocumentId);
+      if (stored.kind !== 'student_answer') {
+        throw new ValidationError(`Document "${stored.id}" is a ${stored.kind}, not a student answer.`);
       }
-      const studentPdfBytes = await repository.getDocumentBytes(studentDocument.id);
+      const studentPdfBytes = await repository.getDocumentBytes(stored.id);
+      // A scan is read before it is marked; a typed sheet passes straight through.
+      let studentDocument: IngestedDocument;
+      try {
+        studentDocument = await transcriptions.ensureReadable(stored, studentPdfBytes);
+      } catch (error) {
+        // A provider refusal while reading the scan must read like one, not as raw JSON.
+        throw asModelFailure(error, model.providerName);
+      }
 
       const { result, annotations } = await runGrading({
         rubric,
@@ -418,6 +456,20 @@ export function createApp(dependencies: AppDependencies): express.Express {
     }),
   );
 
+  /* ------------------------------- web app ------------------------------- */
+
+  if (dependencies.webDist) {
+    const webDist = dependencies.webDist;
+    // Vite fingerprints everything under /assets, so those can be cached for
+    // good; index.html is the one file that must always be fetched fresh.
+    app.use('/assets', express.static(path.join(webDist, 'assets'), { immutable: true, maxAge: '1y' }));
+    app.use(express.static(webDist, { index: false }));
+    app.get(/^\/(?!api(\/|$)).*/, (_request, response) => {
+      response.setHeader('Cache-Control', 'no-cache');
+      response.sendFile(path.join(webDist, 'index.html'));
+    });
+  }
+
   /* ------------------------------- errors -------------------------------- */
 
   app.use((_request, response) => {
@@ -448,6 +500,32 @@ export function createApp(dependencies: AppDependencies): express.Express {
 
   /* ------------------------------ helpers -------------------------------- */
 
+  /** The document with text on every page, transcribing a scan first if it must. */
+  async function readable(document: IngestedDocument): Promise<IngestedDocument> {
+    if (!needsTranscription(document)) return document;
+    const bytes = await repository.getDocumentBytes(document.id);
+    return transcriptions.ensureReadable(document, bytes);
+  }
+
+  /**
+   * An earlier upload of exactly these bytes whose scanned pages were already
+   * read — with line positions, so its annotations can sit beside the right
+   * lines. A transcript from before positions existed is not reused: reading
+   * the sheet again buys placed annotations, which is worth the tokens.
+   */
+  async function findTranscribedTwin(document: IngestedDocument): Promise<IngestedDocument | null> {
+    if (document.transcription?.status !== 'pending') return null;
+    const summaries = await repository.listDocuments();
+    const candidates = summaries.filter(
+      (entry) => entry.sha256 === document.sha256 && entry.id !== document.id && entry.transcription?.status === 'done',
+    );
+    for (const candidate of candidates.sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+      const full = await repository.getDocument(candidate.id);
+      if (full && hasPositionedTranscript(full)) return full;
+    }
+    return null;
+  }
+
   async function ingest(bytes: Buffer, kind: DocumentKind, filename: string): Promise<IngestedDocument> {
     const extracted = await extractPdf(bytes);
     return {
@@ -467,6 +545,32 @@ export function createApp(dependencies: AppDependencies): express.Express {
 function summarise(document: IngestedDocument) {
   const { pages: _pages, fullText: _fullText, ...summary } = document;
   return summary;
+}
+
+/**
+ * Records, at upload, that a document's pages have no text layer and what will
+ * happen about it — so the response can say "scanned, reading handwriting"
+ * rather than "0 characters read", and so a provider that cannot read images is
+ * on record before anyone tries to mark the sheet.
+ */
+function markScanned(document: IngestedDocument, supported: boolean, providerName: string): IngestedDocument {
+  const pages = pagesNeedingTranscription(document);
+  if (pages.length === 0) return document;
+  return {
+    ...document,
+    transcription: {
+      status: supported ? 'pending' : 'unsupported',
+      pages,
+      provider: providerName,
+      model: null,
+      at: null,
+      legibility: null,
+      unclear: [],
+      error: supported
+        ? null
+        : `The ${providerName} provider cannot read images, so the scanned pages could not be transcribed.`,
+    },
+  };
 }
 
 /** Strips any path components, so a filename can never escape its directory. */

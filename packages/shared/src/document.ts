@@ -19,6 +19,17 @@ export const TextRunSchema = z.object({
 });
 export type TextRun = z.infer<typeof TextRunSchema>;
 
+/**
+ * Where a page's text came from.
+ *
+ * `text-layer` — read from the PDF itself, with a rectangle for every run.
+ * `transcription` — a scanned page with no text layer, read by a vision model
+ *   from the page image. Faithful to what was written, but without positions,
+ *   so annotations on it fall back to margin notes.
+ */
+export const PAGE_TEXT_SOURCES = ['text-layer', 'transcription'] as const;
+export type PageTextSource = (typeof PAGE_TEXT_SOURCES)[number];
+
 export const PageTextSchema = z.object({
   index: z.number().int().nonnegative(),
   /** Page dimensions in PDF points, kept so exports can denormalise rectangles. */
@@ -26,7 +37,36 @@ export const PageTextSchema = z.object({
   height: z.number().positive(),
   text: z.string(),
   runs: z.array(TextRunSchema),
+  /** Absent on documents stored before transcription existed; means text-layer. */
+  source: z.enum(PAGE_TEXT_SOURCES).optional(),
 });
+
+/**
+ * What happened to a document's pages that had no text layer.
+ *
+ * `pending` — a vision model is reading them in the background.
+ * `done` — the pages now carry transcribed text.
+ * `unsupported` — the provider cannot read images, so the pages stay blank and
+ *   every result built on them says so.
+ * `failed` — transcription was attempted and did not complete.
+ */
+export const TRANSCRIPTION_STATUSES = ['pending', 'done', 'unsupported', 'failed'] as const;
+export type TranscriptionStatus = (typeof TRANSCRIPTION_STATUSES)[number];
+
+export const TranscriptionInfoSchema = z.object({
+  status: z.enum(TRANSCRIPTION_STATUSES),
+  /** Zero-based indices of the pages that needed (or need) transcription. */
+  pages: z.array(z.number().int().nonnegative()),
+  provider: z.string().nullable(),
+  model: z.string().nullable(),
+  at: z.string().nullable(),
+  /** The transcriber's own reading of how legible the handwriting was. */
+  legibility: z.enum(['good', 'fair', 'poor']).nullable(),
+  /** Spans the transcriber could not read with confidence, verbatim from its markers. */
+  unclear: z.array(z.string()),
+  error: z.string().nullable(),
+});
+export type TranscriptionInfo = z.infer<typeof TranscriptionInfoSchema>;
 export type PageText = z.infer<typeof PageTextSchema>;
 
 export const IngestedDocumentSchema = z.object({
@@ -41,6 +81,8 @@ export const IngestedDocumentSchema = z.object({
   /** All page text joined with form feeds, for prompting. */
   fullText: z.string(),
   createdAt: z.string(),
+  /** Present only for documents with pages that had no text layer. */
+  transcription: TranscriptionInfoSchema.optional(),
 });
 export type IngestedDocument = z.infer<typeof IngestedDocumentSchema>;
 

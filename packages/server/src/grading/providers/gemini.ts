@@ -5,12 +5,14 @@ import {
   RUBRIC_SYSTEM_PROMPT,
   SCHEME_CHUNK_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
+  TRANSCRIPTION_SYSTEM_PROMPT,
   buildAnswerChunkPrompt,
   buildQuestionPaperChunkPrompt,
   buildQuestionPrompt,
   buildRepairPrompt,
   buildRubricPrompt,
   buildSchemeChunkPrompt,
+  buildTranscriptionPrompt,
   type AnswerChunkInput,
   type DocumentChunkInput,
   type GradeQuestionInput,
@@ -18,10 +20,12 @@ import {
   type ModelAttemptContext,
   type CriteriaInferenceInput,
   type ModelResponse,
+  type PageTranscriptionInput,
   type RubricExtractionInput,
 } from '../model.js';
 import {
   ANSWER_CHUNK_JSON_SCHEMA,
+  PAGE_TRANSCRIPT_JSON_SCHEMA,
   QUESTION_GRADING_JSON_SCHEMA,
   QUESTION_PAPER_CHUNK_JSON_SCHEMA,
   RUBRIC_JSON_SCHEMA,
@@ -117,6 +121,19 @@ export class GeminiGradingModel implements GradingModel {
   /** Derives criteria for a question whose scheme defined none. */
   async inferCriteria(input: CriteriaInferenceInput): Promise<ModelResponse> {
     return this.call(input.systemPrompt, [{ text: input.prompt }], input.schema, 'write criteria for this question');
+  }
+
+  /** Reads one scanned page of handwriting. Gemini sees images natively, so the grading model does this too. */
+  async transcribePage(input: PageTranscriptionInput): Promise<ModelResponse> {
+    return this.call(
+      TRANSCRIPTION_SYSTEM_PROMPT,
+      [
+        { inlineData: { mimeType: input.mimeType, data: input.imageBase64 } },
+        { text: buildTranscriptionPrompt(input) },
+      ],
+      PAGE_TRANSCRIPT_JSON_SCHEMA,
+      'transcribe this page of handwriting',
+    );
   }
 
   private async call(

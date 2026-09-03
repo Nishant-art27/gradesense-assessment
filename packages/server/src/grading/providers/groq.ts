@@ -7,12 +7,14 @@ import {
   RUBRIC_SYSTEM_PROMPT,
   SCHEME_CHUNK_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
+  TRANSCRIPTION_SYSTEM_PROMPT,
   buildAnswerChunkPrompt,
   buildQuestionPaperChunkPrompt,
   buildQuestionPrompt,
   buildRepairPrompt,
   buildRubricPrompt,
   buildSchemeChunkPrompt,
+  buildTranscriptionPrompt,
   type AnswerChunkInput,
   type CriteriaInferenceInput,
   type DocumentChunkInput,
@@ -20,10 +22,12 @@ import {
   type GradingModel,
   type ModelAttemptContext,
   type ModelResponse,
+  type PageTranscriptionInput,
   type RubricExtractionInput,
 } from '../model.js';
 import {
   ANSWER_CHUNK_JSON_SCHEMA,
+  PAGE_TRANSCRIPT_JSON_SCHEMA,
   QUESTION_GRADING_JSON_SCHEMA,
   QUESTION_PAPER_CHUNK_JSON_SCHEMA,
   RUBRIC_JSON_SCHEMA,
@@ -31,6 +35,7 @@ import {
 } from '../output-schema.js';
 import { TokenRateLimiter } from '../rate-limit.js';
 import {
+  IMAGE_PROMPT_TOKENS,
   currentBudget,
   estimateTokens,
   planRequest,
@@ -74,6 +79,13 @@ import { safeJsonParse } from './json.js';
  *     than remotely; and all requests pass through one rate limiter that keeps
  *     the rolling minute inside the allowance and runs them one at a time.
  *
+ *  4. **Scanned handwriting goes to a second model.** gpt-oss cannot see, but
+ *     Groq serves vision-capable models (Qwen 3.x) that can. A scanned page is
+ *     rendered and read by the vision model into a transcript — exact text,
+ *     described diagrams, flagged illegible spans — and gpt-oss marks that,
+ *     told plainly what it is reading. Each Groq model has its own
+ *     tokens-per-minute bucket, so the limiter is kept per model too.
+ *
  * The API is OpenAI-shaped, so this file is also the template for any
  * OpenAI-compatible vendor.
  */
@@ -93,36 +105,86 @@ interface CallOptions {
    */
   completionReserve?: number;
   reasoningEffort?: ReasoningEffort;
+  /** A different Groq model for this call, with its own rate-limit bucket. */
+  model?: string;
+  /** Prompt tokens the text estimator cannot see — an attached image. */
+  extraPromptTokens?: number;
 }
 
 /** Attribution replies are a short list, whatever the size of the excerpt. */
 const ATTRIBUTION_RESERVE = 1_500;
 
 /**
- * One limiter for the process, not one per instance: the allowance belongs to
- * the API key, and every request made with it counts against the same minute.
+ * One limiter per model for the whole process, not one per instance: Groq's
+ * allowance is per key *and per model*, and every request made with the key
+ * counts against that model's minute. So the grading model and the vision model
+ * run against separate buckets, and two instances share the same ones.
  */
-let sharedLimiter: TokenRateLimiter | null = null;
-function defaultLimiter(): TokenRateLimiter {
-  sharedLimiter ??= new TokenRateLimiter({
-    tokensPerMinute: config.tokens.tokensPerMinute,
-    onWait: (_ms, reason) => console.warn(`[groq] ${reason}`),
-  });
-  return sharedLimiter;
+const sharedLimiters = new Map<string, TokenRateLimiter>();
+function limiterFor(model: string): TokenRateLimiter {
+  let limiter = sharedLimiters.get(model);
+  if (!limiter) {
+    limiter = new TokenRateLimiter({
+      tokensPerMinute: config.tokens.tokensPerMinute,
+      onWait: (_ms, reason) => console.warn(`[groq:${model}] ${reason}`),
+    });
+    sharedLimiters.set(model, limiter);
+  }
+  return limiter;
 }
+
+/** Transcripts are short relative to their page, and Qwen does not think aloud. */
+const TRANSCRIPTION_RESERVE = 2_000;
 
 export class GroqGradingModel implements GradingModel {
   readonly providerName = 'groq';
   readonly modelName: string;
 
-  private readonly client: Groq;
-  private readonly limiter: TokenRateLimiter;
+  /** The model that reads scanned pages, or null when none is configured. */
+  readonly visionModelName: string | null;
 
-  constructor(modelName: string, apiKey?: string, client?: Groq, limiter?: TokenRateLimiter) {
+  private readonly client: Groq;
+  private readonly limiterOverride: TokenRateLimiter | null;
+
+  constructor(
+    modelName: string,
+    apiKey?: string,
+    client?: Groq,
+    limiter?: TokenRateLimiter,
+    visionModelName: string | null = config.visionModel,
+  ) {
     this.modelName = modelName;
     this.client = client ?? new Groq({ apiKey: apiKey ?? process.env.GROQ_API_KEY });
-    this.limiter = limiter ?? defaultLimiter();
+    this.limiterOverride = limiter ?? null;
+    this.visionModelName = visionModelName;
+
+    if (this.visionModelName) {
+      const vision = this.visionModelName;
+      this.transcribePage = (input) =>
+        this.call(
+          TRANSCRIPTION_SYSTEM_PROMPT,
+          [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: buildTranscriptionPrompt(input) },
+                { type: 'image_url', image_url: { url: `data:${input.mimeType};base64,${input.imageBase64}` } },
+              ],
+            },
+          ],
+          'page_transcript',
+          PAGE_TRANSCRIPT_JSON_SCHEMA,
+          'transcribe this page of handwriting',
+          { model: vision, completionReserve: TRANSCRIPTION_RESERVE, extraPromptTokens: IMAGE_PROMPT_TOKENS },
+        );
+    }
   }
+
+  /**
+   * Reads one scanned page of handwriting with the vision model. Only present
+   * when one is configured, so a caller can tell by the method's existence.
+   */
+  transcribePage?: (input: PageTranscriptionInput) => Promise<ModelResponse>;
 
   async gradeQuestion(input: GradeQuestionInput, context: ModelAttemptContext): Promise<ModelResponse> {
     const questionPrompt = buildQuestionPrompt(input);
@@ -229,7 +291,12 @@ export class GroqGradingModel implements GradingModel {
     // refused locally as something the caller knows how to split.
     const budget = currentBudget();
     if (options.completionReserve !== undefined) budget.completionReserve = options.completionReserve;
-    const plan = planRequest([systemPrompt, ...messages.map((message) => message.content)], budget);
+    const modelName = options.model ?? this.modelName;
+    const plan = planRequest(
+      [systemPrompt, ...messages.map((message) => textOf(message.content))],
+      budget,
+      options.extraPromptTokens ?? 0,
+    );
     if (!plan.fits) {
       throw new RequestTooLargeError(
         `A request to ${what} would be about ${plan.requested} tokens (≈${plan.promptTokens} of prompt plus ${plan.completionReserve} reserved for the reply), above the ${plan.ceiling}-token ceiling for one request. It has to be split.`,
@@ -238,17 +305,20 @@ export class GroqGradingModel implements GradingModel {
       );
     }
 
-    return this.limiter.schedule(plan.requested, async () => {
+    const limiter = this.limiterOverride ?? limiterFor(modelName);
+    return limiter.schedule(plan.requested, async () => {
       let completion: Groq.Chat.Completions.ChatCompletion;
       let headers: Headers | null = null;
+      let waitedForWindow = false;
+      for (;;) {
       try {
         const result = await this.client.chat.completions
           .create({
-            model: this.modelName,
+            model: modelName,
             messages: [{ role: 'system', content: systemPrompt }, ...messages],
             temperature: TEMPERATURE,
             max_completion_tokens: plan.completionReserve,
-            ...(options.reasoningEffort && REASONING_MODELS.test(this.modelName)
+            ...(options.reasoningEffort && REASONING_MODELS.test(modelName)
               ? { reasoning_effort: options.reasoningEffort }
               : {}),
             response_format: {
@@ -259,7 +329,37 @@ export class GroqGradingModel implements GradingModel {
           .withResponse();
         completion = result.data;
         headers = result.response.headers;
+        break;
       } catch (error) {
+        /*
+         * The minute's allowance is spent — usually because the ledger is empty
+         * after a restart while Groq's window is not. Groq says when it resets;
+         * waiting that long once, here, beats three retries in two seconds that
+         * all fail the same way and end in "could not be reached".
+         */
+        if (error instanceof Groq.RateLimitError && /per day|\bTPD\b|\bRPD\b/i.test(error.message)) {
+          // A daily allowance does not come back in a minute. Say so, once,
+          // instead of waiting and retrying into the same refusal.
+          const reset = /try again in ([^.]+?s)\b/i.exec(error.message)?.[1] ?? 'a while';
+          throw new AppError(
+            'model_unavailable',
+            `Groq's daily token allowance for ${modelName} is used up for today (it frees up in about ${reset}). ${
+              modelName === this.visionModelName && modelName !== this.modelName
+                ? 'This is the vision model that reads scanned handwriting: already-transcribed sheets can still be marked, but no new scan can be read until then. Set VISION_MODEL to another vision-capable Groq model, or upgrade the Groq tier.'
+                : 'Nothing can be marked until then; upgrade the Groq tier or wait.'
+            }`,
+            { status: 429, retryable: false, details: [summariseError(error)] },
+          );
+        }
+        if (error instanceof Groq.RateLimitError && !waitedForWindow) {
+          const wait = Math.min(retryAfterMs(error) ?? 20_000, 90_000);
+          limiter.noteServerState(0, wait);
+          console.warn(`[groq:${modelName}] Groq refused the request: allowance spent; waiting ${Math.ceil(wait / 1000)}s for the window to reset`);
+          await new Promise((resolve) => setTimeout(resolve, wait + 500));
+          waitedForWindow = true;
+          continue;
+        }
+
         // The estimate under-counted and Groq refused the size. Not transient:
         // the same request would be refused again, so it is reported as the
         // splittable kind of failure rather than retried into an "outage".
@@ -290,6 +390,7 @@ export class GroqGradingModel implements GradingModel {
           ];
         }
         throw error;
+      }
       }
 
       const choice = completion.choices[0];
@@ -332,7 +433,18 @@ export class GroqGradingModel implements GradingModel {
   }
 }
 
-type GroqMessage = { role: 'user' | 'assistant'; content: string };
+type GroqMessage =
+  | Groq.Chat.Completions.ChatCompletionUserMessageParam
+  | Groq.Chat.Completions.ChatCompletionAssistantMessageParam;
+
+/** The text of a message, for the token estimate; images are counted separately. */
+function textOf(content: GroqMessage['content']): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => ('text' in part && typeof part.text === 'string' ? part.text : ''))
+    .join('\n');
+}
 
 /** Groq's "Request too large … tokens per minute (TPM)" arrives as a 413. */
 function isTooLarge(error: unknown): boolean {
@@ -368,10 +480,31 @@ function headerNumber(headers: Headers | null, name: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * How long Groq asks us to wait after a refusal, from its headers: `retry-after`
+ * in seconds, else the token window's reset time. Null when it says nothing.
+ */
+export function retryAfterMs(error: { headers?: unknown }): number | null {
+  const header = (name: string): string | null => {
+    const headers = error.headers as { get?: (key: string) => string | null } | Record<string, string> | undefined;
+    if (!headers) return null;
+    if (typeof (headers as { get?: unknown }).get === 'function') return (headers as { get: (key: string) => string | null }).get(name);
+    return (headers as Record<string, string>)[name] ?? (headers as Record<string, string>)[name.toLowerCase()] ?? null;
+  };
+  const retryAfter = header('retry-after');
+  if (retryAfter && Number.isFinite(Number(retryAfter))) return Math.ceil(Number(retryAfter) * 1000);
+  const reset = header('x-ratelimit-reset-tokens');
+  return reset ? parseDuration(reset) : null;
+}
+
 /** Groq writes reset times like "2m59.56s", "7.66s" or "1h2m3s". */
 function headerDuration(headers: Headers | null, name: string): number | null {
   const value = headers?.get(name);
   if (!value) return null;
+  return parseDuration(value);
+}
+
+function parseDuration(value: string): number | null {
   const pattern = /(\d+(?:\.\d+)?)(h|m|s|ms)/g;
   let total = 0;
   let matched = false;

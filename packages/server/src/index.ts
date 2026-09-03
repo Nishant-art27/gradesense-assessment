@@ -1,4 +1,6 @@
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { config } from './config.js';
 import { createApp, createDefaultRepository } from './app.js';
 import { loadRubric } from './rubric-source.js';
@@ -10,10 +12,13 @@ async function main(): Promise<void> {
   // marks do not add up means nothing downstream can be trusted.
   const rubric = await loadRubric();
 
-  const app = createApp({ repository: createDefaultRepository() });
+  // `npm run build` produces the web app; in development Vite serves it instead.
+  const webDist = existsSync(path.join(config.paths.webDist, 'index.html')) ? config.paths.webDist : undefined;
+
+  const app = createApp({ repository: createDefaultRepository(), webDist });
 
   app.listen(config.port, () => {
-    console.log(`\n  GradeSense API   http://localhost:${config.port}`);
+    console.log(`\n  GradeSense ${webDist ? 'app + API' : 'API'}   http://localhost:${config.port}`);
     // The suffix used to be hardcoded to "deterministic, no API key needed" for
     // anything that was not Anthropic, which told a Gemini user the opposite of
     // the truth about where their marks were coming from.

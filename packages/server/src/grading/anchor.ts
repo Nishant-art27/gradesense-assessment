@@ -34,9 +34,15 @@ export interface AnchorResult {
   similarity: number;
   matchedText: string | null;
   rects: Rect[];
+  /**
+   * True when the rectangles come from a vision model's estimate of where a
+   * transcribed line sits, rather than from the PDF's own text layer. Right to
+   * within a line or so, not to the word; shown and scored as approximate.
+   */
+  approximatePosition: boolean;
 }
 
-const UNRESOLVED: AnchorResult = { status: 'unresolved', similarity: 0, matchedText: null, rects: [] };
+const UNRESOLVED: AnchorResult = { status: 'unresolved', similarity: 0, matchedText: null, rects: [], approximatePosition: false };
 
 /* ----------------------------- character widths ---------------------------- */
 
@@ -208,13 +214,24 @@ export function anchorQuote(quote: string | null, pages: PageText[], pageHint?: 
   if (!best) return UNRESOLVED;
 
   const rects = rectsForRange(best.page, best.from, best.to);
-  if (rects.length === 0) return UNRESOLVED;
+
+  /*
+   * A transcribed page has text but no runs, so a quote can be found in it and
+   * still have nowhere to be drawn. That is a verified quote without a
+   * rectangle — the caller shows it as a margin note — not a quote that is
+   * absent. Conflating the two would mark every citation on a scanned sheet as
+   * unverified, and drag its confidence down for a reason that is not real.
+   * A page that does have runs but yields no rectangle is still unresolved, as
+   * before: there the geometry should have worked, and its failure is a signal.
+   */
+  if (rects.length === 0 && best.page.runs.length > 0) return UNRESOLVED;
 
   return {
     status: best.status,
     similarity: Number(best.similarity.toFixed(4)),
     matchedText: best.page.text.slice(best.from, best.to),
     rects,
+    approximatePosition: rects.length > 0 && best.page.source === 'transcription',
   };
 }
 
@@ -257,6 +274,7 @@ export function anchorRegion(
 
   return {
     status: 'region',
+    approximatePosition: false,
     similarity: 0,
     matchedText: null,
     rects: [

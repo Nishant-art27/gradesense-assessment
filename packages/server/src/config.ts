@@ -73,18 +73,47 @@ const DEFAULT_MODEL: Record<ProviderName, string> = {
   groq: 'openai/gpt-oss-120b',
 };
 
+/**
+ * The model that reads scanned handwriting, per provider.
+ *
+ * Gemini and Claude see images with the same model that marks. Groq's marking
+ * model (gpt-oss) is text-only, so scanned pages go to a vision model with its
+ * own rate-limit bucket, and the transcript is what gpt-oss marks. `null` means
+ * the provider cannot read scans and every result built on one will say so.
+ */
+const DEFAULT_VISION_MODEL: Record<ProviderName, string | null> = {
+  mock: null,
+  anthropic: null, // same model as grading; resolved below
+  gemini: null, // same model as grading; resolved below
+  groq: 'qwen/qwen3.8-27b',
+};
+
 const PROVIDER = resolveProvider();
+
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(REPO_ROOT, 'data');
 
 export const config = {
   port: num(process.env.PORT, 4000),
   provider: PROVIDER,
   model: process.env.GRADING_MODEL ?? DEFAULT_MODEL[PROVIDER],
+  /** Vision model for scanned pages; the grading model itself where that model can see. */
+  visionModel:
+    process.env.VISION_MODEL ??
+    DEFAULT_VISION_MODEL[PROVIDER] ??
+    (PROVIDER === 'gemini' || PROVIDER === 'anthropic' ? process.env.GRADING_MODEL ?? DEFAULT_MODEL[PROVIDER] : null),
 
   paths: {
     repoRoot: REPO_ROOT,
-    /** Uploaded PDF bytes and grading history. Safe to delete; regenerated on use. */
-    data: path.join(REPO_ROOT, 'data'),
-    uploads: path.join(REPO_ROOT, 'data', 'uploads'),
+    /**
+     * Uploaded PDF bytes and grading history. Safe to delete; regenerated on use.
+     * DATA_DIR points it at a persistent disk when deployed — the repo checkout
+     * is ephemeral on every hosting platform, so anything written beside it is
+     * lost on the next deploy.
+     */
+    data: DATA_DIR,
+    uploads: path.join(DATA_DIR, 'uploads'),
+    /** The production build of the web app, served by the API when present. */
+    webDist: path.join(REPO_ROOT, 'packages', 'web', 'dist'),
     rubric: path.join(REPO_ROOT, 'fixtures', 'rubric.json'),
     answers: path.join(REPO_ROOT, 'fixtures', 'answers'),
     exports: path.join(REPO_ROOT, 'exports'),

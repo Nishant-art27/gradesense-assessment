@@ -19,7 +19,7 @@ import { anchorQuote, anchorRegion, marginNoteRect } from './anchor.js';
 import { combineConfidence, computeConfidence } from './confidence.js';
 import { SYSTEM_PROMPT, buildQuestionPrompt, type GradingModel } from './model.js';
 import { mergePasses } from './passes.js';
-import { asModelFailure, isTransientModelError } from './providers/transient.js';
+import { asModelFailure, isRateLimitError, isTransientModelError } from './providers/transient.js';
 import { estimateTokens, variableAllowance } from './tokens.js';
 import {
   blankQuestion,
@@ -76,6 +76,23 @@ export async function runGrading(input: RunGradingInput): Promise<RunGradingOutp
   const { segments, segmentNotes } = await locateAnswers(studentDocument, rubric, model);
   const segmentById = new Map(segments.map((segment) => [segment.questionId, segment]));
 
+  /*
+   * A scanned sheet has been read by a vision model, or could not be. Either
+   * way every consumer downstream is told: the grading prompt reads a transcript
+   * differently from a text layer, the confidence score says the marks rest on
+   * a reading of handwriting, and a sheet the provider could not read at all
+   * must never pass as a paper full of blank answers.
+   */
+  const transcription = studentDocument.transcription ?? null;
+  const transcribed = transcription?.status === 'done';
+  if (transcribed) {
+    segmentNotes.push(
+      `The answer sheet is a scan with no text layer, so its handwriting was read by a vision model (${transcription.model ?? transcription.provider ?? 'unknown'}), legibility rated "${transcription.legibility ?? 'unknown'}"${
+        transcription.unclear.length > 0 ? `, with ${transcription.unclear.length} span${transcription.unclear.length === 1 ? '' : 's'} it could not read with confidence` : ''
+      }. Marks below were awarded on that transcript; annotations are shown as margin notes.`,
+    );
+  }
+
   const resultId = crypto.randomUUID();
   const pdfBase64 = studentPdfBytes.toString('base64');
 
@@ -103,6 +120,10 @@ export async function runGrading(input: RunGradingInput): Promise<RunGradingOutp
       pdfBase64,
       studentDocument,
       model,
+      answerSource: transcribed ? 'transcription' : 'text-layer',
+      transcriptionNotes: transcribed
+        ? { legibility: transcription.legibility, unclear: transcription.unclear }
+        : undefined,
     });
 
     audit.push(...graded.audit);
@@ -128,6 +149,8 @@ export async function runGrading(input: RunGradingInput): Promise<RunGradingOutp
       ...graded.confidenceDraft,
       unresolvedAnchors: placed.unresolved,
       regionAnchors: placed.regions,
+      transcribed,
+      unclearSpans: transcription?.unclear.length ?? 0,
     });
 
     for (let i = 0; i < placed.unresolved; i += 1) {
@@ -157,6 +180,14 @@ export async function runGrading(input: RunGradingInput): Promise<RunGradingOutp
 
   const { requiresHumanReview, reviewReasons } = decideReview(questionResults, audit, confidence);
 
+  if (transcription && transcription.status !== 'done') {
+    reviewReasons.unshift(
+      transcription.status === 'unsupported'
+        ? `The answer sheet is a scan with no text layer and the ${transcription.provider ?? 'current'} provider cannot read images, so its ${transcription.pages.length} scanned page${transcription.pages.length === 1 ? '' : 's'} could not be read. Questions on those pages were treated as unanswered — these zeros are NOT a judgement of the student's work. Use a vision-capable provider (groq, gemini or anthropic) to mark this sheet.`
+        : `The answer sheet is a scan and reading its handwriting ${transcription.status === 'pending' ? 'had not finished' : 'failed'}${transcription.error ? `: ${transcription.error}` : ''}. Questions on the unread pages were treated as unanswered — these zeros are NOT a judgement of the student's work.`,
+    );
+  }
+
   const result: GradingResult = {
     id: resultId,
     createdAt: new Date().toISOString(),
@@ -171,7 +202,7 @@ export async function runGrading(input: RunGradingInput): Promise<RunGradingOutp
     maxMarks,
     questions: questionResults,
     confidence,
-    requiresHumanReview,
+    requiresHumanReview: requiresHumanReview || reviewReasons.length > 0,
     reviewReasons,
     audit,
   };
@@ -212,7 +243,11 @@ async function locateAnswers(
 ): Promise<{ segments: AnswerSegment[]; segmentNotes: string[] }> {
   const segments = segmentAnswers(studentDocument.pages, rubric.questions);
 
-  const needsAttribution = segments.some((segment) => segment.approximate && segment.text.length > 0);
+  // Headings missing for every question, or for some: either way a question's
+  // answer may be sitting under another question's heading, so the sheet is
+  // read to find out — provided there is any text to read.
+  const hasText = studentDocument.pages.some((page) => page.text.trim().length > 0);
+  const needsAttribution = hasText && segments.some((segment) => segment.approximate);
   if (!needsAttribution || !model.attributeAnswerChunk) return { segments, segmentNotes: [] };
 
   const attributed = await attributeAnswers({
@@ -225,10 +260,20 @@ async function locateAnswers(
   });
   if (!attributed) return { segments, segmentNotes: [] };
 
+  // A missing heading corrupts its neighbour too — the previous question's
+  // heading-based segment runs on into the unheaded answer — so once any
+  // heading is missing the model's reading is used for every question, and a
+  // heading-based segment is kept only where the model found nothing at all.
+  const merged = segments.map((segment) => {
+    const found = attributed.segments.find((entry) => entry.questionId === segment.questionId);
+    return found && found.text.trim().length > 0 ? found : segment;
+  });
+  const filled = segments.filter((segment) => segment.approximate).map((segment) => `Q${segment.number}`);
+
   return {
-    segments: attributed.segments,
+    segments: merged,
     segmentNotes: [
-      `The answer sheet has no question headings, so the grading model read it in ${attributed.requests} piece${attributed.requests === 1 ? '' : 's'} to work out which text answers which question. Check that the right text was marked.`,
+      `The answer sheet had no recognisable heading for ${filled.join(', ')}, so the grading model read it in ${attributed.requests} piece${attributed.requests === 1 ? '' : 's'} to work out which text answers which question. Check that the right text was marked.`,
     ],
   };
 }
@@ -241,6 +286,8 @@ interface GradeOneInput {
   pdfBase64: string;
   studentDocument: IngestedDocument;
   model: GradingModel;
+  answerSource: 'text-layer' | 'transcription';
+  transcriptionNotes?: { legibility: 'good' | 'fair' | 'poor' | null; unclear: string[] };
 }
 
 type GradeOneOutput =
@@ -287,6 +334,8 @@ async function gradeOneQuestion(input: GradeOneInput): Promise<GradeOneOutput> {
       pageCount: studentDocument.pageCount,
       startPage: segment.startPage,
       pages: [],
+      answerSource: input.answerSource,
+      transcriptionNotes: input.transcriptionNotes,
     }),
   ];
   let allowance = variableAllowance(fixedParts);
@@ -377,6 +426,8 @@ async function gradePassage(
     pageCount: studentDocument.pageCount,
     startPage: segment.startPage,
     pages: studentDocument.pages,
+    answerSource: input.answerSource,
+    transcriptionNotes: input.transcriptionNotes,
   };
 
   let repairAttempts = 0;
@@ -471,7 +522,9 @@ async function gradePassage(
   // Every attempt ended in a transient failure. This is an outage, not a
   // judgement, so it propagates as a 503 and nothing gets persisted.
   throw new ModelUnavailableError(
-    `The grading model could not be reached after ${transientFailures} attempt${transientFailures === 1 ? '' : 's'}. No marks were recorded.`,
+    isRateLimitError(lastTransientError)
+      ? `${model.providerName}'s per-minute token allowance was exhausted, and it was still exhausted after ${transientFailures} attempt${transientFailures === 1 ? '' : 's'}. No marks were recorded — wait a minute and mark the script again.`
+      : `The grading model could not be reached after ${transientFailures} attempt${transientFailures === 1 ? '' : 's'}. No marks were recorded.`,
     transientFailures,
     lastTransientError,
   );
@@ -539,12 +592,19 @@ function buildAnnotations(input: BuildAnnotationsInput): BuildAnnotationsOutput 
     let rect = entry.rects[0];
     let extraRects = entry.rects.slice(1);
 
+    // A quote that was found in a transcript has no rectangle: verified text,
+    // but a margin note on the page, and labelled as such.
+    let anchorStatus = anchor.status;
     if (!rect) {
       rect = marginNoteRect(marginPage, slotOffset + index);
       extraRects = [];
       unresolved += 1;
-    } else if (anchor.status === 'region') {
+      anchorStatus = 'unresolved';
+    } else if (anchor.status === 'region' || anchor.approximatePosition) {
+      // A box estimated from a scanned line is right to within a line or so,
+      // which is what "region" already means to the UI and the confidence score.
       regions += 1;
+      anchorStatus = 'region';
     }
 
     annotations.push({
@@ -559,7 +619,7 @@ function buildAnnotations(input: BuildAnnotationsInput): BuildAnnotationsOutput 
       comment: finding.comment,
       correction: finding.correction,
       quote: finding.quote,
-      anchorStatus: anchor.status,
+      anchorStatus,
       origin: 'ai',
       editedByHuman: false,
       createdAt: now,

@@ -66,9 +66,23 @@ export function currentBudget(): TokenBudget {
   };
 }
 
-/** Sizes a request before it is sent, so an oversized one is split rather than refused. */
-export function planRequest(parts: string[], budget: TokenBudget = currentBudget()): RequestPlan {
-  const promptTokens = estimateRequestTokens(parts);
+/**
+ * What one page image costs a vision model, roughly. Measured at about 1,800
+ * tokens for a 1,600-pixel page on Groq's Qwen; rounded up.
+ */
+export const IMAGE_PROMPT_TOKENS = 2_100;
+
+/**
+ * Sizes a request before it is sent, so an oversized one is split rather than
+ * refused. `extraPromptTokens` covers content the estimator cannot see, such
+ * as an attached image.
+ */
+export function planRequest(
+  parts: string[],
+  budget: TokenBudget = currentBudget(),
+  extraPromptTokens = 0,
+): RequestPlan {
+  const promptTokens = estimateRequestTokens(parts) + extraPromptTokens;
   const ceiling = Math.floor(budget.requestLimit * (1 - budget.safetyMargin));
   const requested = promptTokens + budget.completionReserve;
 

@@ -303,3 +303,87 @@ export const ANSWER_CHUNK_JSON_SCHEMA: Record<string, unknown> = {
     },
   },
 };
+
+/* ----------------------------- page transcription ----------------------------- */
+
+/**
+ * What a vision model returns for one scanned page of handwriting.
+ *
+ * The transcript is asked for exactly as written — misspellings, crossings-out
+ * and all — because the grader must judge what the student wrote, not a tidied
+ * version. Drawings cannot be transcribed, so each is described in words with
+ * every label it carries, and its position in the text is kept with a marker.
+ * Anything the model could not read is listed rather than guessed at, so that
+ * uncertainty reaches the grader and the teacher instead of becoming a mark.
+ */
+const BOX_PROPERTIES = {
+  top: { type: 'integer', description: 'Top edge, 0–1000 of the page height from the top.' },
+  bottom: { type: 'integer', description: 'Bottom edge, 0–1000 of the page height from the top.' },
+  left: { type: 'integer', description: 'Left edge, 0–1000 of the page width from the left.' },
+  right: { type: 'integer', description: 'Right edge, 0–1000 of the page width from the left.' },
+} as const;
+
+export const PAGE_TRANSCRIPT_JSON_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['lines', 'diagrams', 'unclear', 'struck', 'questionNumbers', 'legibility'],
+  properties: {
+    lines: {
+      type: 'array',
+      description:
+        'Every written line on the page, in reading order, exactly as written, each with the box it occupies. Equations in plain text as the student wrote them. A line holding a drawing is "[diagram N]". Use [unclear: best guess] where a word cannot be read and [struck: text] for anything crossed out.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['text', ...Object.keys(BOX_PROPERTIES)],
+        properties: {
+          text: { type: 'string', description: 'The line, exactly as written.' },
+          ...BOX_PROPERTIES,
+        },
+      },
+    },
+    diagrams: {
+      type: 'array',
+      description: 'One entry per [diagram N] line, with the box the drawing occupies.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['marker', 'description', 'labels', ...Object.keys(BOX_PROPERTIES)],
+        properties: {
+          marker: { type: 'integer', description: 'The N in the [diagram N] line.' },
+          description: {
+            type: 'string',
+            description:
+              'What the drawing shows and how its parts relate: shapes, arrows and their directions, axes, rays, components. Factual, not evaluative.',
+          },
+          labels: {
+            type: 'array',
+            description: 'Every label, symbol, value and annotation written on or beside the drawing, exactly as written.',
+            items: { type: 'string' },
+          },
+          ...BOX_PROPERTIES,
+        },
+      },
+    },
+    unclear: {
+      type: 'array',
+      description: 'The best-guess text of every [unclear: …] marker, one per entry. Empty if everything was legible.',
+      items: { type: 'string' },
+    },
+    struck: {
+      type: 'array',
+      description: 'Text the student crossed out, one entry per [struck: …] marker.',
+      items: { type: 'string' },
+    },
+    questionNumbers: {
+      type: 'array',
+      description: 'Question numbers whose headings appear on this page ("Q31", "Ans 3", "31."). Empty if none.',
+      items: { type: 'integer' },
+    },
+    legibility: {
+      type: 'string',
+      enum: ['good', 'fair', 'poor'],
+      description: 'How readable the handwriting on this page was overall.',
+    },
+  },
+};

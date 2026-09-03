@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import Groq from 'groq-sdk';
-import { AppError, ModelAuthError } from '../../errors.js';
+import { AppError, ModelAuthError, ModelUnavailableError } from '../../errors.js';
 
 /**
  * Whether a provider failure is worth retrying.
@@ -26,6 +26,13 @@ function statusOf(error: unknown): number | null {
     if (typeof value === 'string' && /^\d{3}$/.test(value)) return Number(value);
   }
   return null;
+}
+
+/** A refusal because the minute's allowance is spent, as distinct from an outage. */
+export function isRateLimitError(error: unknown): boolean {
+  if (error instanceof Anthropic.RateLimitError || error instanceof Groq.RateLimitError) return true;
+  if (statusOf(error) === 429) return true;
+  return error instanceof Error && /rate limit|too many requests|quota/i.test(error.message);
 }
 
 export function isTransientModelError(error: unknown): boolean {
@@ -115,6 +122,16 @@ export function asModelFailure(error: unknown, providerName: string): AppError {
   const status = statusOf(error);
   const summary = summarise(error);
   const detail = summary ? [`${providerName} said: ${summary}`] : [];
+
+  if (isRateLimitError(error)) {
+    return new ModelUnavailableError(
+      `${providerName}'s token allowance is exhausted, so nothing was marked. Wait a minute and try again${
+        summary && /per day/i.test(summary) ? ', or, since this is the daily limit, upgrade the tier or wait for it to reset' : ''
+      }.`,
+      1,
+      error,
+    );
+  }
 
   if (status !== null && AUTH_STATUSES.has(status)) {
     return new ModelAuthError(
